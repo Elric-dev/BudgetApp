@@ -3,13 +3,13 @@ This `README.md` is designed to position your project as a professional engineer
 ### `README.md`
 
 
-# 📊 BudgetArchitect
+# BudgetArchitect
 
 **A strategic financial management engine for precision budgeting.** Developed by **Caronte Developers**, this application transforms raw transaction data from Splitwise into a high-level financial roadmap. It is designed to handle individual and household-level financial planning with a focus on data integrity and real-time projections.
 
 ---
 
-## 🛠 Engineering Architecture
+## Engineering Architecture
 
 The core of the application is built on a **Relational Bridge Architecture**. Unlike simple trackers, BudgetArchitect decouples transaction imports from budget targets.
 
@@ -20,7 +20,7 @@ The core of the application is built on a **Relational Bridge Architecture**. Un
 
 ---
 
-## 🚀 Features
+## Features
 
 * **Multi-Profile Support**: Seamlessly toggle between individual views (**Gus**, **Joules**) and a consolidated **🏠 Household** view.
 * **Itemized Budgeting**: Set granular targets for every category imported via Splitwise.
@@ -31,7 +31,7 @@ The core of the application is built on a **Relational Bridge Architecture**. Un
 
 ---
 
-## 🏗 Database Schema
+## Database Schema
 
 The application utilizes a MySQL/MariaDB backend with the following relational structure:
 
@@ -42,7 +42,7 @@ The application utilizes a MySQL/MariaDB backend with the following relational s
 
 ---
 
-## ⚙️ Installation & Setup
+## Installation & Setup
 
 1. **Clone the repository**
    ```bash
@@ -78,7 +78,7 @@ python app.py
 
 ---
 
-## 🔮 Roadmap & Future Development
+## Roadmap & Future Development
 
 I will be actively evolving this tool to include advanced wealth management features:
 
