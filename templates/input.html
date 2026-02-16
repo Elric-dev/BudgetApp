@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Manual Expense Entry</h5>
+            </div>
+            <div class="card-body">
+                <form id="manualForm">
+                    <div class="mb-3">
+                        <label class="form-label">Date</label>
+                        <input type="date" id="expDate" class="form-control bg-dark text-white border-secondary" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <input type="text" id="expDesc" class="form-control bg-dark text-white border-secondary" placeholder="e.g. Weekly Groceries" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Amount (€)</label>
+                        <input type="number" step="0.01" id="expAmt" class="form-control bg-dark text-white border-secondary" placeholder="0.00" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <select id="expCat" class="form-select bg-dark text-white border-secondary">
+                            {% for cat in categories %}
+                            <option value="{{ cat.id }}">{{ cat.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="button" onclick="saveExpense()" class="btn btn-primary w-100">Save Transaction</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6 mb-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Import Splitwise CSV</h5>
+            </div>
+            <div class="card-body d-flex flex-column justify-content-center">
+                <p class="text-muted">Upload your latest Splitwise export. Duplicates will be skipped automatically.</p>
+                <input type="file" id="csvFile" class="form-control bg-dark text-white border-secondary mb-3">
+                <button type="button" onclick="uploadCSV()" class="btn btn-outline-info">Process File</button>
+                <div id="uploadStatus" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+[Image of a web form for manual expense entry and a file upload area for CSV files]
+
+<script>
+async function saveExpense() {
+    const payload = {
+        date: document.getElementById('expDate').value,
+        description: document.getElementById('expDesc').value,
+        amount: document.getElementById('expAmt').value,
+        category_id: document.getElementById('expCat').value
+    };
+
+    if(!payload.date || !payload.amount) return alert("Please fill in Date and Amount");
+
+    const res = await fetch('/api/add_expense', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    
+    if (res.ok) {
+        alert("Expense Added Successfully!");
+        document.getElementById('manualForm').reset();
+    }
+}
+
+async function uploadCSV() {
+    const fileInput = document.getElementById('csvFile');
+    if(!fileInput.files[0]) return alert("Select a file first");
+
+    const statusDiv = document.getElementById('uploadStatus');
+    statusDiv.innerHTML = "Processing...";
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    const res = await fetch('/api/upload_csv', {
+        method: 'POST',
+        body: formData
+    });
+    
+    const result = await res.json();
+    statusDiv.innerHTML = `<span class="text-success">${result.status || result.error}</span>`;
+}
+</script>
+{% endblock %}

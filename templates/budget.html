@@ -1,0 +1,262 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="text-info"><i class="bi bi-wallet2 me-2"></i>Budget Planner</h3>
+    <span class="badge bg-dark border border-secondary text-muted">Monthly Strategy</span>
+</div>
+
+<div class="row mb-4 align-items-stretch">
+    <div class="col-md-8">
+        <div class="card bg-dark border-secondary p-4 shadow-lg h-100" style="border-left: 4px solid #0dcaf0 !important;">
+            <div class="row align-items-center">
+                <div class="col-md-6 border-end border-secondary">
+                    <h6 class="text-info small text-uppercase fw-bold mb-1" style="letter-spacing: 1px;">Combined Monthly Net</h6>
+                    <h2 id="net-income-display" class="fw-bold text-white mb-0">€0.00</h2>
+                    <span class="badge bg-outline-info text-info border border-info mt-2" style="font-size: 0.7rem;">Available to Budget</span>
+                </div>
+                <div class="col-md-6 ps-4">
+                    <div class="mb-3">
+                        <div class="text-light small text-uppercase mb-1" style="font-size: 0.7rem;">Total Gross Earnings</div>
+                        <h4 id="gross-display" class="text-white fw-bold mb-0">€0.00</h4>
+                    </div>
+                    <div>
+                        <div class="text-light small text-uppercase mb-1" style="font-size: 0.7rem;">Estimated Tax Liability</div>
+                        <h4 id="tax-display" class="text-danger fw-bold mb-0">€0.00</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-4">
+                <button class="btn btn-sm btn-info fw-bold px-4 py-2" onclick="manageIncome()">
+                    <i class="bi bi-gear-fill me-2"></i>Configure Income Sources
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card bg-dark border-secondary p-4 shadow-lg h-100 d-flex flex-column justify-content-center">
+            <label class="text-light small text-uppercase fw-bold mb-3 text-center" style="letter-spacing: 1px;">Switch Budget Profile</label>
+            <div class="d-flex justify-content-center">
+                <select id="userSelect" class="form-select form-select-lg bg-black text-white border-secondary text-center" onchange="loadBudget()" style="max-width: 250px;">
+                    <option value="0">Gus</option>
+                    <option value="1">Joules</option>
+                </select>
+            </div>
+            <div class="text-center mt-3">
+                <small class="text-muted italic">Targets are unique to each user</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+        
+
+    <div class="card bg-dark border-secondary shadow-lg">
+        <div class="table-responsive">
+            <table class="table table-dark table-hover align-middle mb-0">
+                <thead class="table-secondary text-dark">
+                    <tr>
+                        <th class="ps-4">Category</th>
+                        <th style="width: 160px;">Allocation %</th>
+                        <th>Target (€)</th>
+                        <th>Actual Spent</th>
+                        <th class="pe-4" style="width: 200px;">Month Status</th>
+                    </tr>
+                </thead>
+                <tbody id="budget-rows">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="incomeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white border-secondary shadow-lg">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-info"><i class="bi bi-pencil-square me-2"></i>Income Streams</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-2 px-2 small text-light text-uppercase fw-bold">
+                    <div class="col-6">Source</div>
+                    <div class="col-3">Gross</div>
+                    <div class="col-3 text-end">Tax %</div>
+                </div>
+                <div id="income-list" class="mb-4">
+                    </div>
+
+                <hr class="border-secondary">
+                <h6 class="text-info small fw-bold text-uppercase mb-3">Add Income Source</h6>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="small text-light mb-1">Source Name</label>
+                        <input type="text" id="newSource" class="form-control bg-black text-white border-secondary" placeholder="e.g. Job, Side Hustle">
+                    </div>
+                    <div class="col-6">
+                        <label class="small text-light mb-1">Monthly Gross (€)</label>
+                        <input type="number" id="newGross" class="form-control bg-black text-white border-secondary" placeholder="0">
+                    </div>
+                    <div class="col-6">
+                        <label class="small text-light mb-1">Tax Rate (%)</label>
+                        <input type="number" id="newTax" class="form-control bg-black text-white border-secondary" placeholder="0">
+                    </div>
+                    <div class="col-12 mt-4">
+                        <button class="btn btn-info w-100 fw-bold py-2" onclick="addIncome()">
+                            <i class="bi bi-plus-lg me-1"></i> Save Source
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .bg-black { background-color: #000 !important; }
+    .form-control:focus { background-color: #000; color: #fff; border-color: #0dcaf0; box-shadow: none; }
+    .progress { background-color: #000; border: 1px solid #333; }
+    .table-hover tbody tr:hover { background-color: rgba(13, 202, 240, 0.05); }
+    .input-group-text { color: #fff; font-weight: bold; }
+</style>
+
+<script>
+// --- PAGE INITIALIZATION & LOAD ---
+
+async function loadBudget() {
+    const userSelect = document.getElementById('userSelect');
+    if (!userSelect) return; // Exit if DOM not ready
+
+    const userId = userSelect.value;
+    const netDisplay = document.getElementById('net-income-display');
+    const grossDisplay = document.getElementById('gross-display');
+    const taxDisplay = document.getElementById('tax-display');
+    const rowContainer = document.getElementById('budget-rows');
+
+    try {
+        const res = await fetch(`/api/budget/report?user_id=${userId}`);
+        const data = await res.json();
+
+        // 1. Update Header Displays
+        const net = parseFloat(data.net_income || 0);
+        if (netDisplay) netDisplay.innerText = `€${net.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        if (grossDisplay) grossDisplay.innerText = `€${parseFloat(data.gross_income || 0).toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        if (taxDisplay) taxDisplay.innerText = `- €${parseFloat(data.tax_amount || 0).toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+
+        // 2. Render Categories
+        if (!data.report || data.report.length === 0) {
+            rowContainer.innerHTML = '<tr><td colspan="5" class="text-center text-info py-5">No budget data. Set targets below.</td></tr>';
+            return;
+        }
+
+        rowContainer.innerHTML = data.report.map(item => {
+            const tEuro = parseFloat(item.target_euro || 0);
+            const actual = parseFloat(item.actual || 0);
+            const pctUsed = tEuro > 0 ? (actual / tEuro) * 100 : 0;
+            const barColor = pctUsed > 100 ? 'bg-danger' : (pctUsed > 85 ? 'bg-warning' : 'bg-info');
+
+            return `
+                <tr class="border-bottom border-secondary">
+                    <td class="ps-4 text-white fw-bold">${item.category}</td>
+                    <td>
+                        <div class="input-group input-group-sm" style="width: 125px;">
+                            <input type="number" step="0.5" class="form-control bg-black text-info border-secondary fw-bold" 
+                                   value="${item.target_pct}" onchange="savePct('${item.category}', this.value)">
+                            <span class="input-group-text bg-secondary border-0">%</span>
+                        </div>
+                    </td>
+                    <td class="text-light">€${tEuro.toFixed(2)}</td>
+                    <td class="fw-bold text-white">€${actual.toFixed(2)}</td>
+                    <td class="pe-4">
+                        <div class="progress" style="height: 10px;">
+                            <div class="progress-bar ${barColor}" style="width: ${Math.min(pctUsed, 100)}%"></div>
+                        </div>
+                        <small class="text-muted" style="font-size: 0.7rem;">${Math.round(pctUsed)}% of target</small>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+    } catch (e) {
+        console.error("Error loading budget:", e);
+        if (netDisplay) netDisplay.innerText = "Error";
+    }
+}
+
+// --- INCOME MGMT ---
+
+async function manageIncome() {
+    const userId = document.getElementById('userSelect').value;
+    const res = await fetch(`/api/income?user_id=${userId}`);
+    const streams = await res.json();
+    const list = document.getElementById('income-list');
+    
+    list.innerHTML = (streams.length === 0) 
+        ? '<div class="text-center text-info py-3 border border-dashed border-secondary rounded">No sources found.</div>'
+        : streams.map(s => `
+            <div class="row g-0 align-items-center mb-2 p-2 bg-black rounded border border-secondary">
+                <div class="col-6 text-white small fw-bold">${s.source_name}</div>
+                <div class="col-3 text-success">€${parseFloat(s.monthly_gross).toFixed(0)}</div>
+                <div class="col-2 text-center text-light small">${s.tax_rate}%</div>
+                <div class="col-1 text-end">
+                    <button class="btn btn-sm text-danger p-0" onclick="deleteStream(${s.id})">
+                        <i class="bi bi-trash-fill"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+    new bootstrap.Modal(document.getElementById('incomeModal')).show();
+}
+
+async function addIncome() {
+    const userId = document.getElementById('userSelect').value;
+    const payload = {
+        source: document.getElementById('newSource').value,
+        gross: document.getElementById('newGross').value,
+        tax: document.getElementById('newTax').value
+    };
+    if (!payload.source || !payload.gross) return;
+
+    await fetch(`/api/income?user_id=${userId}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+
+    document.getElementById('newSource').value = '';
+    document.getElementById('newGross').value = '';
+    document.getElementById('newTax').value = '';
+    
+    // Refresh UI
+    await manageIncome();
+    loadBudget();
+}
+
+async function deleteStream(id) {
+    if(!confirm("Delete?")) return;
+    await fetch('/api/income/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: id})
+    });
+    manageIncome();
+    loadBudget();
+}
+
+async function savePct(category, pct) {
+    const userId = document.getElementById('userSelect').value;
+    await fetch('/api/budget/save', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ user_id: userId, category: category, percent: parseFloat(pct) })
+    });
+    loadBudget();
+}
+
+// Ensure load triggers only after DOM is ready
+document.addEventListener('DOMContentLoaded', loadBudget);
+</script>
+{% endblock %}

@@ -1,0 +1,130 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3>Data Hygiene</h3>
+        <span class="badge bg-warning text-dark" id="itemCount">Loading...</span>
+    </div>
+
+    <div id="cleanup-list" class="row">
+        <div class="text-center mt-5">
+            <div class="spinner-border text-info" role="status"></div>
+            <p class="mt-2">Fetching your transactions...</p>
+        </div>
+    </div>
+</div>
+
+<script>
+async function loadCleanup() {
+    try {
+        // 1. Fetch both datasets in parallel
+        const [catRes, transRes] = await Promise.all([
+            fetch('/api/categories'),
+            fetch('/api/uncategorized')
+        ]);
+
+        const categories = await catRes.json();
+        const transactions = await transRes.json();
+        
+        const container = document.getElementById('cleanup-list');
+        const countBadge = document.getElementById('itemCount');
+        
+        countBadge.innerText = `${transactions.length} Items to Fix`;
+
+        if(transactions.length === 0) {
+            container.innerHTML = `
+                <div class="col-12 text-center mt-5">
+                    <div class="alert alert-success py-5">
+                        <h4 class="alert-heading">✨ All Clean!</h4>
+                        <p class="mb-0">No uncategorized transactions found in the database.</p>
+                    </div>
+                </div>`;
+            return;
+        }
+
+        // 2. Generate the HTML for the list
+        container.innerHTML = transactions.map(t => `
+            <div class="col-md-6 mb-3" id="card-${t.id}">
+                <div class="card bg-dark border-secondary shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1 text-white">${t.description}</h6>
+                                <p class="small text-muted mb-0">${t.date}</p>
+                            </div>
+                            <span class="badge bg-outline-info border border-info text-info">€${t.total_amount}</span>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <div class="input-group input-group-sm">
+                                <select id="select-${t.id}" class="form-select bg-dark text-white border-secondary">
+                                    <option value="" selected disabled>Assign to...</option>
+                                    ${categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                                </select>
+                                <button onclick="fixCategory(${t.id})" class="btn btn-success px-3">Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error("Cleanup load failed:", error);
+        document.getElementById('cleanup-list').innerHTML = `<div class="alert alert-danger">Error loading data. Check console.</div>`;
+    }
+}
+
+async function fixCategory(transactionId) {
+    const select = document.getElementById(`select-${transactionId}`);
+    const catId = select.value;
+    
+    if (!catId) {
+        select.classList.add('is-invalid');
+        return;
+    }
+
+    const res = await fetch('/api/update_category', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            transaction_id: transactionId,
+            category_id: catId
+        })
+    });
+
+    if (res.ok) {
+        const card = document.getElementById(`card-${transactionId}`);
+        // Simple animation to show it's being removed
+        card.style.transition = 'all 0.3s ease';
+        card.style.transform = 'scale(0.9)';
+        card.style.opacity = '0';
+        
+        setTimeout(() => {
+            card.remove();
+            // Update the badge count
+            const currentCount = parseInt(document.getElementById('itemCount').innerText);
+            document.getElementById('itemCount').innerText = `${currentCount - 1} Items to Fix`;
+            
+            // If the list is now empty, refresh the view
+            if (currentCount - 1 === 0) loadCleanup();
+        }, 300);
+    }
+}
+
+// Initial Load
+document.addEventListener('DOMContentLoaded', loadCleanup);
+</script>
+
+<style>
+    .form-select:focus {
+        background-color: #212529;
+        color: white;
+        border-color: #198754;
+        box-shadow: none;
+    }
+    .card { transition: transform 0.2s; }
+    .card:hover { transform: translateY(-2px); }
+</style>
+{% endblock %}
