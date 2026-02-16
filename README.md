@@ -2,6 +2,7 @@ This `README.md` is designed to position your project as a professional engineer
 
 ### `README.md`
 
+
 # 📊 BudgetArchitect
 
 **A strategic financial management engine for precision budgeting.** Developed by **Caronte Developers**, this application transforms raw transaction data from Splitwise into a high-level financial roadmap. It is designed to handle individual and household-level financial planning with a focus on data integrity and real-time projections.
@@ -46,9 +47,7 @@ The application utilizes a MySQL/MariaDB backend with the following relational s
 1. **Clone the repository**
    ```bash
    git clone [https://github.com/Elric-dev/BudgetApp.git](https://github.com/Elric-dev/BudgetApp.git)
-   cd BudgetApp
-
-```
+   cd BudgetApp```
 
 2. **Initialize the Database**
 Execute the `schema.sql` file in your MySQL environment to set up tables and constraints:
