@@ -3,6 +3,7 @@ import mysql.connector
 import os
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
+from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
@@ -169,7 +170,7 @@ def add_expense():
     share = amount / 2
     
     sql = """INSERT INTO transactions 
-             (date, description, total_amount, user_id, category_id, payer_id, gus_share, gf_share, is_split) 
+             (date, description, total_amount, user_id, category_id, payer_id, Gus_share, Joules_share, is_split) 
              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
     
     # Hardcoding user/payer as 0 (Gus) for simple manual entries
@@ -277,76 +278,73 @@ def save_budget():
 @app.route('/api/budget/report')
 def budget_report():
     user_id = request.args.get('user_id', 0)
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # 1. Calculate Income Breakdown (Gross, Tax, Net)
-        cursor.execute("""
-            SELECT 
-                SUM(monthly_gross) as total_gross,
-                SUM(monthly_gross * (tax_rate/100)) as total_tax,
-                SUM(monthly_gross * (1 - tax_rate/100)) as total_net 
-            FROM income_streams 
-            WHERE user_id = %s
-        """, (user_id,))
-        
-        income_data = cursor.fetchone()
-        gross = float(income_data['total_gross'] or 0.0)
-        tax = float(income_data['total_tax'] or 0.0)
-        net = float(income_data['total_net'] or 0.0)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # 1. Calculate Income (as before)
+    cursor.execute("""
+        SELECT SUM(monthly_gross * (1 - tax_rate/100)) as total_net 
+        FROM income_streams WHERE user_id = %s
+    """, (user_id,))
+    net_income = float(cursor.fetchone()['total_net'] or 0.0)
 
-        # 2. Get All Categories + Budget % + Current Month Actuals
-        # We use a LEFT JOIN on transactions for the CURRENT MONTH only
-        query = """
-            SELECT 
-                c.parent_name as category,
-                MAX(COALESCE(b.target_percent, 0)) as target_pct,
-                SUM(CASE 
-                    WHEN %s = 0 THEN COALESCE(t.Gus_share, 0) 
-                    ELSE COALESCE(t.Joules_share, 0) 
-                END) as actual
-            FROM categories c
-            LEFT JOIN budgets b ON c.parent_name = b.category_name AND b.user_id = %s
-            LEFT JOIN transactions t ON c.id = t.category_id 
-                 AND t.date >= DATE_FORMAT(CURDATE(), '%%Y-%%m-01')
-            GROUP BY c.parent_name
-            ORDER BY c.parent_name ASC
-        """
-        cursor.execute(query, (user_id, user_id))
-        rows = cursor.fetchall()
-        
-        report_data = []
-        for row in rows:
-            t_pct = float(row['target_pct'] or 0)
-            actual = float(row['actual'] or 0)
-            # Calculate the Euro target based on the combined Net Income
-            t_euro = (t_pct / 100) * net
+    # 2. Get Categories and Averages
+    # We use subqueries to get "Last Month" and "All Time Avg"
+    query = """
+        SELECT 
+            c.parent_name as category,
+            MAX(COALESCE(b.target_percent, 0)) as target_pct,
             
-            report_data.append({
-                "category": row['category'],
-                "target_pct": t_pct,
-                "target_euro": t_euro,
-                "actual": actual
-            })
-
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            "report": report_data,
-            "net_income": net,
-            "gross_income": gross,
-            "tax_amount": tax
+            -- Last Calendar Month
+            (SELECT SUM(CASE WHEN %s = 0 THEN Gus_share ELSE Joules_share END)
+             FROM transactions t2 JOIN categories c2 ON t2.category_id = c2.id
+             WHERE c2.parent_name = c.parent_name 
+             AND t2.date >= LAST_DAY(CURRENT_DATE - INTERVAL 2 MONTH) + INTERVAL 1 DAY
+             AND t2.date <= LAST_DAY(CURRENT_DATE - INTERVAL 1 MONTH)) as last_month_actual,
+             
+            -- Historical Monthly Average
+            (SELECT SUM(CASE WHEN %s = 0 THEN Gus_share ELSE Joules_share END) / 
+                    NULLIF(TIMESTAMPDIFF(MONTH, MIN(t3.date), CURRENT_DATE) + 1, 0)
+             FROM transactions t3 JOIN categories c3 ON t3.category_id = c3.id
+             WHERE c3.parent_name = c.parent_name) as hist_avg
+             
+        FROM categories c
+        LEFT JOIN budgets b ON c.parent_name = b.category_name AND b.user_id = %s
+        GROUP BY c.parent_name
+        ORDER BY c.parent_name ASC
+    """
+    cursor.execute(query, (user_id, user_id, user_id))
+    rows = cursor.fetchall()
+    
+    report_data = []
+    for row in rows:
+        hist_avg = float(row['hist_avg'] or 0)
+        report_data.append({
+            "category": row['category'],
+            "target_pct": float(row['target_pct']),
+            "last_month": float(row['last_month_actual'] or 0),
+            "hist_avg": hist_avg,
+            "avg_salary_pct": (hist_avg / net_income * 100) if net_income > 0 else 0
         })
-        
-    except Exception as e:
-        print(f"SQL Error in budget_report: {e}")
-        return jsonify({"error": str(e)}), 500
+
+    cursor.close()
+    conn.close()
+    return jsonify({"report": report_data, "net_income": net_income})
 
 @app.route('/budget')
 def budget_page():
     return render_template('budget.html')
+
+@app.route('/api/budget/get')
+def get_budget():
+    user_id = request.args.get('user_id', 0)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT savings_pct, expenses_pct FROM budgets WHERE user_id = %s", (user_id,))
+    budget = cursor.fetchone() or {"savings_pct": 0, "expenses_pct": 0}
+    cursor.close()
+    conn.close()
+    return jsonify(budget)
 
 @app.route('/api/income', methods=['GET', 'POST'])
 def handle_income():
@@ -377,6 +375,63 @@ def handle_income():
     conn.close()
     return jsonify(streams)
 
+@app.route('/api/budget/list')
+def list_budget_categories():
+    user_id = request.args.get('user_id', 0)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # Crucial: Join on name string, not ID
+        query = """
+            SELECT 
+                c.id, 
+                c.name, 
+                COALESCE(b.target_amount, 0) as amount
+            FROM categories c
+            LEFT JOIN budgets b ON c.name = b.category_name AND b.user_id = %s
+            ORDER BY c.name ASC
+        """
+        cursor.execute(query, (user_id,))
+        rows = cursor.fetchall()
+        return jsonify(rows)
+    except Exception as e:
+        print(f"Fetch Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/budget/save_items', methods=['POST'])
+def save_budget_items():
+    data = request.json
+    user_id = data.get('user_id')
+    items = data.get('items', [])
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        for item in items:
+            # We use item['name'] because that is what JS is sending
+            query = """
+                INSERT INTO budgets (user_id, category_name, target_amount) 
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    target_amount = VALUES(target_amount)
+            """
+            cursor.execute(query, (user_id, item['name'], item['amount']))
+        
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        conn.rollback()
+        print(f"SQL SAVE ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 @app.route('/api/income/delete', methods=['POST'])
 def delete_income():
     id = request.json.get('id')
@@ -388,11 +443,310 @@ def delete_income():
     conn.close()
     return jsonify({"status": "success"})
 
+### Networth API Endpoint
+
+@app.route('/networth')
+def networth_page():
+    return render_template('networth.html')
+
+@app.route('/api/networth')
+def get_networth():
+    user_id = request.args.get('user_id', 0)
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM assets WHERE user_id = %s ORDER BY current_value DESC", (user_id,))
+    assets = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return jsonify(assets)
+
+@app.route('/api/networth/update', methods=['POST'])
+def update_asset():
+    data = request.json
+    # Debug print to see what is arriving in your terminal
+    print(f"Incoming Asset Data: {data}")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        if data.get('id'):
+            # UPDATE existing
+            query = "UPDATE assets SET current_value = %s, asset_name = %s WHERE id = %s"
+            cursor.execute(query, (data['value'], data['name'], data['id']))
+        else:
+            # INSERT new - ensure user_id is 0 or 1
+            query = """
+                INSERT INTO assets (user_id, asset_name, asset_type, current_value) 
+                VALUES (%s, %s, %s, %s)
+            """
+            cursor.execute(query, (data['user_id'], data['name'], data['type'], data['value']))
+        
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        print(f"Error saving asset: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/finance/snapshot', methods=['POST'])
+def save_snapshot():
+    data = request.json
+    user_id = data.get('user_id', 0)
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Check if calculation logic is sound
+    cursor.execute("SELECT SUM(current_value) as total FROM assets WHERE user_id = %s", (user_id,))
+    nw = cursor.fetchone()['total'] or 0
+    
+    cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as total_net FROM income_streams WHERE user_id = %s", (user_id,))
+    inc = cursor.fetchone()['total_net'] or 0
+    
+    # The 'ON DUPLICATE KEY UPDATE' ensures you only have 1 entry per day
+    cursor.execute("""
+        INSERT INTO net_worth_history (user_id, total_value, snapshot_date) 
+        VALUES (%s, %s, CURDATE()) 
+        ON DUPLICATE KEY UPDATE total_value = VALUES(total_value)
+    """, (user_id, nw))
+    
+    cursor.execute("""
+        INSERT INTO income_history (user_id, total_net_income, snapshot_date) 
+        VALUES (%s, %s, CURDATE()) 
+        ON DUPLICATE KEY UPDATE total_net_income = VALUES(total_net_income)
+    """, (user_id, inc))
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/finance/snapshot', methods=['POST'])
+def take_snapshot():
+    data = request.json
+    user_id = int(data.get('user_id', 0))
+    other_user_id = 1 if user_id == 0 else 0
+    
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # 1. CALCULATE CURRENT VALUES FOR ACTIVE USER
+        # Get Net Worth (sum of assets)
+        cursor.execute("SELECT SUM(current_value) as nw FROM assets WHERE user_id = %s", (user_id,))
+        current_nw = cursor.fetchone()['nw'] or 0
+        
+        # Get Net Income (sum of income streams)
+        cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams WHERE user_id = %s", (user_id,))
+        current_inc = cursor.fetchone()['inc'] or 0
+
+        # 2. SAVE ACTIVE USER DATA (Current Date)
+        # Net Worth History
+        cursor.execute("""
+            INSERT INTO net_worth_history (user_id, total_value, snapshot_date) 
+            VALUES (%s, %s, CURDATE()) 
+            ON DUPLICATE KEY UPDATE total_value = VALUES(total_value)
+        """, (user_id, current_nw))
+        
+        # Income History
+        cursor.execute("""
+            INSERT INTO income_history (user_id, total_net_income, snapshot_date) 
+            VALUES (%s, %s, CURDATE()) 
+            ON DUPLICATE KEY UPDATE total_net_income = VALUES(total_net_income)
+        """, (user_id, current_inc))
+
+        # 3. SYNC TRIGGER: "GHOST" THE OTHER USER'S DATA
+        # This ensures the Household view (User 2) always has values for both parties on this date.
+        
+        # Sync Net Worth: Grab other user's latest value and copy it to TODAY
+        cursor.execute(f"""
+            INSERT INTO net_worth_history (user_id, total_value, snapshot_date)
+            SELECT user_id, total_value, CURDATE()
+            FROM net_worth_history 
+            WHERE user_id = {other_user_id} 
+            ORDER BY snapshot_date DESC LIMIT 1
+            ON DUPLICATE KEY UPDATE total_value = total_value
+        """)
+        
+        # Sync Income: Grab other user's latest value and copy it to TODAY
+        cursor.execute(f"""
+            INSERT INTO income_history (user_id, total_net_income, snapshot_date)
+            SELECT user_id, total_net_income, CURDATE()
+            FROM income_history 
+            WHERE user_id = {other_user_id} 
+            ORDER BY snapshot_date DESC LIMIT 1
+            ON DUPLICATE KEY UPDATE total_net_income = total_net_income
+        """)
+
+        conn.commit()
+        return jsonify({"status": "success", "message": "Snapshot synchronized for household."})
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Snapshot Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/finance/history')
+def finance_history():
+    user_id = int(request.args.get('user_id', 0))
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    if user_id == 2:
+        # HOUSEHOLD NORMALIZATION
+        # We create a unique list of dates first, then sum everyone's data for that date
+        query = """
+            WITH DateRange AS (
+                SELECT DISTINCT snapshot_date FROM net_worth_history
+                UNION
+                SELECT DISTINCT snapshot_date FROM income_history
+            )
+            SELECT 
+                d.snapshot_date,
+                (SELECT SUM(total_value) FROM net_worth_history WHERE snapshot_date = d.snapshot_date) as nw_total,
+                (SELECT SUM(total_net_income) FROM income_history WHERE snapshot_date = d.snapshot_date) as inc_total
+            FROM DateRange d
+            ORDER BY d.snapshot_date ASC
+        """
+        cursor.execute(query)
+    else:
+        # INDIVIDUAL: Standard filtering
+        query = """
+            SELECT n.snapshot_date, n.total_value as nw_total, 
+                   COALESCE(i.total_net_income, 0) as inc_total
+            FROM net_worth_history n
+            LEFT JOIN income_history i ON n.snapshot_date = i.snapshot_date 
+                                       AND n.user_id = i.user_id
+            WHERE n.user_id = %s
+            ORDER BY n.snapshot_date ASC
+        """
+        cursor.execute(query, (user_id,))
+    
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    return jsonify({
+        "dates": [r['snapshot_date'].strftime('%d %b') for r in rows],
+        "nw_values": [float(r['nw_total'] or 0) for r in rows],
+        "inc_values": [float(r['inc_total'] or 0) for r in rows]
+    })
+
+@app.route('/api/networth/delete', methods=['POST'])
+def delete_asset():
+    data = request.json
+    asset_id = data.get('id')
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM assets WHERE id = %s", (asset_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"status": "deleted"})
+
+@app.route('/api/networth/edit-name', methods=['POST'])
+def edit_asset_name():
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE assets SET asset_name = %s WHERE id = %s", (data['name'], data['id']))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"status": "updated"})
+
+
+###### ------- Final Dashboard Route ------- ######
+@app.route('/api/dashboard/summary')
+def dashboard_summary():
+    user_id = int(request.args.get('user_id', 0))
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        if user_id == 2:
+            # HOUSEHOLD: No WHERE clause on user_id
+            cursor.execute("SELECT SUM(current_value) as nw FROM assets")
+            nw = cursor.fetchone()['nw'] or 0
+            
+            cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams")
+            inc = cursor.fetchone()['inc'] or 0
+            
+            cursor.execute("SELECT SUM(Gus_share + Joules_share) as spent FROM transactions WHERE MONTH(date) = MONTH(CURDATE())")
+            spent = cursor.fetchone()['spent'] or 0
+        else:
+            # INDIVIDUAL: Filter by user_id
+            cursor.execute("SELECT SUM(current_value) as nw FROM assets WHERE user_id = %s", (user_id,))
+            nw = cursor.fetchone()['nw'] or 0
+            
+            cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams WHERE user_id = %s", (user_id,))
+            inc = cursor.fetchone()['inc'] or 0
+            
+            share_col = "Gus_share" if user_id == 0 else "Joules_share"
+            cursor.execute(f"SELECT SUM({share_col}) as spent FROM transactions WHERE MONTH(date) = MONTH(CURDATE())")
+            spent = cursor.fetchone()['spent'] or 0
+
+        return jsonify({
+            "net_worth": float(nw),
+            "income": float(inc),
+            "spent": float(spent),
+            "savings": float(inc - spent)
+        })
+    except Exception as e:
+        print(f"Summary Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route('/api/spending/category')
+def spending_by_category():
+    user_id = int(request.args.get('user_id', 0))
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Define what we are summing
+    if user_id == 2:
+        share_calc = "(t.Gus_share + t.Joules_share)"
+    else:
+        share_calc = "t.Gus_share" if user_id == 0 else "t.Joules_share"
+    
+    try:
+        query = f"""
+            SELECT c.name as category_name, SUM({share_calc}) as total
+            FROM transactions t
+            JOIN categories c ON t.category_id = c.id
+            WHERE t.date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            GROUP BY c.name
+            HAVING total > 0
+            ORDER BY total DESC
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        return jsonify({
+            "labels": [r['category_name'] for r in rows],
+            "values": [float(r['total']) for r in rows]
+        })
+    except Exception as e:
+        print(f"Category Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 
 
 
 
+##### RUNNING SCRRIPT #####
 
 if __name__ == '__main__':
     # Running on 5001 to avoid macOS AirPlay conflict on 5000

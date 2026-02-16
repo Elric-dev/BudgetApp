@@ -2,185 +2,158 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <div class="d-flex align-items-center">
-        <h3 class="text-info mb-0"><i class="bi bi-speedometer2 me-2"></i>Financial Overview</h3>
-    </div>
-    <div class="text-end">
-        <span class="small text-light text-uppercase fw-bold d-block" style="letter-spacing: 1px;">Total Period Spending</span>
-        <span class="h3 mb-0 text-warning fw-bold" id="totalDisplay">€0.00</span>
+    <h3 class="text-info"><i class="bi bi-speedometer2 me-2"></i>Executive Dashboard</h3>
+    <div class="d-flex align-items-center gap-2">
+        <label class="small text-light text-uppercase fw-bold mb-0">Profile:</label>
+        <select id="userSelect" class="form-select bg-dark text-white border-secondary" style="width: 160px;" onchange="updateDashboard()">
+            <option value="0">Gus</option>
+            <option value="1">Joules</option>
+            <option value="2">🏠 Household</option>
+    </select>
     </div>
 </div>
 
-<div class="card mb-4 shadow-sm border-0" style="background-color: #1f1f1f;">
-    <div class="card-body d-flex gap-3 align-items-center flex-wrap">
-        <div class="d-flex align-items-center gap-2">
-            <label class="small text-muted text-uppercase fw-bold">User:</label>
-            <select id="userFilter" class="form-select form-select-sm bg-dark text-white border-secondary" onchange="renderDashboard()">
-                <option value="all">Household</option>
-                <option value="0">Gus</option>
-                <option value="1">Joules</option>
-            </select>
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-dark border-info p-3 shadow-sm">
+            <h6 class="text-muted small text-uppercase fw-bold">Current Net Worth</h6>
+            <h3 id="dash-net-worth" class="text-white fw-bold mb-0">€0.00</h3>
+            <small class="text-info">Total Equity</small>
         </div>
-        <div class="d-flex align-items-center gap-2 border-start ps-3">
-            <label class="small text-muted text-uppercase fw-bold">From:</label>
-            <input type="date" id="startDate" class="form-control form-control-sm bg-dark text-white border-secondary">
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-dark border-secondary p-3 shadow-sm">
+            <h6 class="text-muted small text-uppercase fw-bold">Monthly Net Income</h6>
+            <h3 id="dash-income" class="text-success fw-bold mb-0">€0.00</h3>
+            <small class="text-muted">Current Flow</small>
         </div>
-        <div class="d-flex align-items-center gap-2">
-            <label class="small text-muted text-uppercase fw-bold">To:</label>
-            <input type="date" id="endDate" class="form-control form-control-sm bg-dark text-white border-secondary">
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-dark border-secondary p-3 shadow-sm">
+            <h6 class="text-muted small text-uppercase fw-bold">Monthly Spending</h6>
+            <h2 id="dash-spending" class="text-warning fw-bold mb-0">€0.00</h2>
+            <small class="text-muted">Total Burn</small>
         </div>
-        <button class="btn btn-sm btn-info px-3 fw-bold" onclick="fetchData()">Update</button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="resetToAllTime()">All Time</button>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-dark border-secondary p-3 shadow-sm">
+            <h6 class="text-muted small text-uppercase fw-bold">Savings Rate</h6>
+            <h3 id="dash-savings" class="text-white fw-bold mb-0">€0.00</h3>
+            <div class="progress mt-2" style="height: 6px; background-color: #000;">
+                <div id="savings-bar" class="progress-bar bg-success" style="width: 0%"></div>
+            </div>
+        </div>
     </div>
 </div>
 
 <div class="row">
-    <div class="col-lg-7 mb-4">
-        <div class="card h-100 shadow-sm border-0 bg-dark text-white">
-            <div class="card-header bg-transparent border-0 pt-3">
-                <h6 class="text-muted text-uppercase small fw-bold">Spending by Category</h6>
-            </div>
-            <div class="card-body">
-                <div style="height: 350px; position: relative;">
-                    <canvas id="spendingChart"></canvas>
-                </div>
+    <div class="col-md-8">
+        <div class="card bg-dark border-secondary p-3 shadow-lg">
+            <h6 class="text-info small fw-bold text-uppercase mb-3">Wealth Trend (Wealth vs. Income)</h6>
+            <div style="height: 350px;">
+                <canvas id="dashNetWorthChart"></canvas>
             </div>
         </div>
     </div>
-
-    <div class="col-lg-5 mb-4">
-        <div class="card h-100 shadow-sm border-0 bg-dark text-white">
-            <div class="card-header bg-transparent border-0 pt-3">
-                <h6 class="text-muted text-uppercase small fw-bold">Quick Breakdown</h6>
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-dark table-hover mb-0">
-                    <tbody id="sums-table-body"></tbody>
-                </table>
+    <div class="col-md-4">
+        <div class="card bg-dark border-secondary p-3 shadow-lg">
+            <h6 class="text-info small fw-bold text-uppercase mb-3">Spending Breakdown</h6>
+            <div style="height: 350px;">
+                <canvas id="dashSpendingChart"></canvas>
             </div>
         </div>
     </div>
 </div>
-
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card shadow-sm border-0 bg-dark text-white">
-            <div class="card-header bg-transparent border-0 pt-3">
-                <h6 class="text-muted text-uppercase small fw-bold text-success">Food & Drink: Deep Dive</h6>
-            </div>
-            <div class="card-body">
-                <div style="height: 300px; position: relative;">
-                    <canvas id="foodChart"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-[Image of a financial dashboard with a date range picker and filter controls]
-
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
-let spendingChart, foodChart;
-let rawData = [];
+let nwChart, spendingChart;
 
-async function fetchData() {
-    const start = document.getElementById('startDate').value;
-    const end = document.getElementById('endDate').value;
-    let params = (start && end) ? `?start=${start}&end=${end}` : '';
+async function updateDashboard() {
+    const userId = document.getElementById('userSelect').value;
 
     try {
-        const [resMain, resFood] = await Promise.all([
-            fetch(`/api/spending${params}`),
-            fetch(`/api/food_drink_breakdown${params}`)
-        ]);
+        // 1. Fetch KPI Summary Data
+        const res = await fetch(`/api/dashboard/summary?user_id=${userId}`);
+        const data = await res.json();
 
-        rawData = await resMain.json();
-        const foodData = await resFood.json();
+        document.getElementById('dash-net-worth').innerText = `€${data.net_worth.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        document.getElementById('dash-income').innerText = `€${data.income.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        document.getElementById('dash-spending').innerText = `€${data.spent.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        
+        const savings = data.savings;
+        const savingsEl = document.getElementById('dash-savings');
+        savingsEl.innerText = `€${savings.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        savingsEl.className = savings >= 0 ? 'fw-bold mb-0 text-success' : 'fw-bold mb-0 text-danger';
 
-        renderDashboard();
-        renderFoodChart(foodData);
-    } catch (e) {
-        console.error("Dashboard fetch failed", e);
+        const savingsPct = data.income > 0 ? (savings / data.income) * 100 : 0;
+        document.getElementById('savings-bar').style.width = `${Math.min(Math.max(savingsPct, 0), 100)}%`;
+
+        // 2. Load the Wealth Trend Chart
+        const hRes = await fetch(`/api/finance/history?user_id=${userId}`);
+        const hData = await hRes.json();
+        renderNetWorthChart(hData);
+
+        // 3. Load the Spending Pie Chart
+        const sRes = await fetch(`/api/spending/category?user_id=${userId}`);
+        const sData = await sRes.json();
+        renderSpendingChart(sData);
+
+    } catch (err) {
+        console.error("Dashboard Sync Failed:", err);
     }
 }
 
-function renderDashboard() {
-    const userView = document.getElementById('userFilter').value;
-    const tableBody = document.getElementById('sums-table-body');
-    tableBody.innerHTML = '';
+function renderNetWorthChart(data) {
+    const ctx = document.getElementById('dashNetWorthChart').getContext('2d');
+    if (nwChart) nwChart.destroy();
 
-    const filtered = rawData.map(item => {
-        let amt = 0;
-        if (userView === 'all') amt = item.total_household;
-        else if (userView === '0') amt = item.total_gus;
-        else if (userView === '1') amt = item.total_joules;
-        return { name: item.parent_name, total: parseFloat(amt || 0) };
-    }).filter(i => i.total > 0.01);
-
-    if (spendingChart) spendingChart.destroy();
-
-    const grandTotal = filtered.reduce((sum, i) => sum + i.total, 0);
-    document.getElementById('totalDisplay').innerText = `€${grandTotal.toFixed(2)}`;
-
-    tableBody.innerHTML = filtered.map(i => `
-        <tr>
-            <td class="ps-3">${i.name}</td>
-            <td class="text-end pe-3 text-info fw-bold">€${i.total.toFixed(2)}</td>
-        </tr>
-    `).join('');
-
-    const ctx = document.getElementById('spendingChart').getContext('2d');
-    spendingChart = new Chart(ctx, {
-        type: 'doughnut',
+    nwChart = new Chart(ctx, {
+        type: 'line',
         data: {
-            labels: filtered.map(i => i.name),
-            datasets: [{
-                data: filtered.map(i => i.total),
-                backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'],
-                borderWidth: 0
-            }]
+            labels: data.dates,
+            datasets: [
+                { label: 'Net Worth', data: data.nw_values, borderColor: '#0dcaf0', yAxisID: 'y', tension: 0.3, fill: true, backgroundColor: 'rgba(13, 202, 240, 0.1)' },
+                { label: 'Net Income', data: data.inc_values, borderColor: '#2ecc71', yAxisID: 'y1', borderDash: [5,5], tension: 0.3 }
+            ]
         },
-        options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#aaa' } } } }
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                y: { position: 'left', grid: { color: '#222' }, ticks: { color: '#0dcaf0' } },
+                y1: { position: 'right', grid: { display: false }, ticks: { color: '#2ecc71' } },
+                x: { ticks: { color: '#888' } }
+            },
+            plugins: { legend: { labels: { color: '#fff' } } }
+        }
     });
 }
 
-function renderFoodChart(data) {
-    const userView = document.getElementById('userFilter').value;
-    const ctx = document.getElementById('foodChart').getContext('2d');
-    if (foodChart) foodChart.destroy();
+function renderSpendingChart(data) {
+    const ctx = document.getElementById('dashSpendingChart').getContext('2d');
+    if (spendingChart) spendingChart.destroy();
 
-    const filtered = data.map(item => {
-        let amt = 0;
-        if (userView === 'all') amt = item.total_household;
-        else if (userView === '0') amt = item.total_gus;
-        else if (userView === '1') amt = item.total_joules;
-        return { name: item.subcategory, total: parseFloat(amt || 0) };
-    }).filter(i => i.total > 0.01);
-
-    if (filtered.length > 0) {
-        foodChart = new Chart(ctx, {
-            type: 'pie',
-            data: {
-                labels: filtered.map(i => i.name),
-                datasets: [{
-                    data: filtered.map(i => i.total),
-                    backgroundColor: ['#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#4e73df'],
-                    borderWidth: 0
-                }]
+    spendingChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: data.labels,
+            datasets: [{
+                data: data.values,
+                backgroundColor: ['#0dcaf0', '#2ecc71', '#ffc107', '#fd7e14', '#6610f2', '#e83e8c'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#fff', padding: 20 } }
             },
-            options: { maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#aaa' } } } }
-        });
-    }
+            cutout: '70%'
+        }
+    });
 }
 
-function resetToAllTime() {
-    document.getElementById('startDate').value = '';
-    document.getElementById('endDate').value = '';
-    fetchData();
-}
-
-document.addEventListener('DOMContentLoaded', fetchData);
+document.addEventListener('DOMContentLoaded', updateDashboard);
 </script>
 {% endblock %}

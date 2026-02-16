@@ -1,0 +1,217 @@
+/* --- Global Theme Foundation --- */
+:root {
+    --bg-dark: #000000;
+    --bg-card: #111111;
+    --border-dim: #333333;
+    --accent-cyan: #0dcaf0;
+    --accent-green: #2ecc71;
+    --accent-amber: #f1c40f;
+    --text-primary: #f8f9fa;
+    --text-secondary: #b0b3b8;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, sans-serif;
+}
+
+/* --- Sidebar Styling --- */
+#sidebar {
+    background-color: #050505;
+    border-right: 1px solid var(--border-dim);
+    min-height: 100vh;
+}
+
+.nav-link {
+    color: var(--text-secondary);
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.nav-link:hover, .nav-link.active {
+    color: var(--accent-cyan) !important;
+    background-color: rgba(13, 202, 240, 0.08);
+}
+
+/* --- Card & Container Logic --- */
+.card {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border-dim) !important;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+.card-header {
+    background-color: rgba(255, 255, 255, 0.03) !important;
+    border-bottom: 1px solid var(--border-dim) !important;
+}
+
+/* --- Typography & Visibility --- */
+.text-muted, small.text-muted {
+    color: #ced4da !important; /* Brighter silver */
+    font-weight: 500;
+}
+
+h1, h2, h3, h4, h5, h6, .fw-bold {
+    color: var(--text-primary);
+}
+
+.text-info { color: var(--accent-cyan) !important; }
+.text-success { color: var(--accent-green) !important; }
+.text-warning { color: var(--accent-amber) !important; }
+
+/* Glowing financial totals */
+#total-net-worth, #net-income-display {
+    text-shadow: 0 0 12px rgba(13, 202, 240, 0.3);
+}
+
+/* --- Table Styles --- */
+.table {
+    color: var(--text-primary) !important;
+}
+
+.table thead th {
+    background-color: #1a1a1a !important;
+    color: var(--accent-cyan) !important;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+    border-bottom: 2px solid var(--border-dim) !important;
+    padding: 12px;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+.table td {
+    border-bottom: 1px solid var(--border-dim);
+}
+
+/* --- Form Elements (Inputs & Selects) --- */
+.form-control, .form-select {
+    background-color: #000000 !important;
+    border: 1px solid var(--border-dim) !important;
+    color: #ffffff !important;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--accent-cyan) !important;
+    box-shadow: 0 0 0 0.2rem rgba(13, 202, 240, 0.2) !important;
+}
+
+/* Inline Edit Field (Transparent) */
+.table input[type="text"].bg-transparent:focus {
+    background-color: #111 !important;
+    border-bottom: 1px solid var(--accent-cyan) !important;
+    box-shadow: none !important;
+}
+
+/* --- Badges & Progress --- */
+.badge.bg-secondary {
+    background-color: #343a40 !important;
+    color: #0dcaf0 !important; /* Cyan text for the type */
+    border: 1px solid #495057;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+}
+
+.progress {
+    background-color: #000000 !important;
+    border: 1px solid #222;
+}
+
+/* --- Utility --- */
+.date-column {
+    color: var(--accent-amber);
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 0.85rem;
+}
+
+.btn-outline-danger:hover {
+    background-color: #dc3545;
+    color: white;
+}
+
+.date-display, .last-updated-text {
+    color: #ffc107 !important; /* High-contrast Amber */
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+    font-size: 0.85rem;
+}
+
+/* High-Contrast Typography */
+.text-light {
+    color: #f8f9fa !important; /* Brighter white for category names */
+    font-weight: 500;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+.text-muted {
+    color: #adb5bd !important; /* Lighter grey so subtext is actually readable */
+}
+
+/* Input Styling for visibility */
+.cat-budget-input {
+    background-color: #1a1a1a !important;
+    color: #0dcaf0 !important; /* Cyan text for the numbers */
+    border: 1px solid #444 !important;
+    font-weight: bold;
+    font-family: 'Courier New', Courier, monospace; /* Monospace for numbers */
+}
+
+.cat-budget-input:focus {
+    background-color: #000 !important;
+    border-color: #0dcaf0 !important;
+    box-shadow: 0 0 8px rgba(13, 202, 240, 0.5);
+}
+
+/* Group Headers */
+.border-bottom.border-secondary {
+    border-color: #495057 !important; /* Sharper lines between rows */
+}
+
+/* Labels */
+label.text-uppercase {
+    letter-spacing: 1px;
+    font-size: 0.75rem;
+    opacity: 0.9;
+}
+
+/* Input Group Accents */
+.input-group-text {
+    border-color: #444 !important;
+    color: #198754 !important; /* Green € symbol for better visibility */
+    font-weight: bold;
+}
+
+/* Summary Projections Styling */
+#proj-income, #proj-savings, #proj-burn {
+    font-size: 1.2rem;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+}
+
+/* Make the labels much brighter than standard muted text */
+.p-3.bg-black.rounded .text-muted {
+    color: #e0e0e0 !important; /* Light grey instead of dark grey */
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* High-contrast colors for the Euro values */
+#proj-income { color: #ffffff !important; }    /* Pure White */
+#proj-savings { color: #2ecc71 !important; }   /* Vibrant Green */
+#proj-burn { color: #f1c40f !important; }      /* Vibrant Yellow */
+
+/* Card Header contrast */
+.card h5.text-white {
+    border-bottom: 2px solid #0dcaf0;
+    display: inline-block;
+    padding-bottom: 5px;
+    margin-bottom: 20px;
+    text-transform: uppercase;
+    font-size: 0.9rem;
+    letter-spacing: 2px;
+}

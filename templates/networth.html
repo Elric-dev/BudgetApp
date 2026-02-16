@@ -1,0 +1,258 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="text-info"><i class="bi bi-graph-up-arrow me-2"></i>Net Worth Tracker</h3>
+    <div class="d-flex gap-2 align-items-center">
+        <label class="small text-light text-uppercase fw-bold mb-0">Profile:</label>
+        <select id="userSelect" class="form-select bg-dark text-white border-secondary" style="width: 120px;" onchange="loadNetWorth()">
+            <option value="0">Gus</option>
+            <option value="1">Joules</option>
+        </select>
+    </div>
+</div>
+
+<div class="card bg-dark border-secondary p-3 mb-4 shadow-lg">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="text-light small fw-bold text-uppercase mb-0">Wealth vs. Income Growth</h6>
+        <button class="btn btn-sm btn-success fw-bold" onclick="takeSnapshot()">
+            <i class="bi bi-camera-fill me-1"></i> Save Snapshot
+        </button>
+    </div>
+    <div style="height: 300px;">
+        <canvas id="netWorthChart"></canvas>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card bg-dark border-info p-4 text-center">
+            <h6 class="text-light small text-uppercase fw-bold">Total Net Worth</h6>
+            <h1 id="total-net-worth" class="text-white fw-bold mb-0">€0.00</h1>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-dark border-secondary p-4 text-center">
+            <h6 class="text-light small text-uppercase fw-bold text-info">Liquid Assets</h6>
+            <h2 id="liquid-assets" class="text-white fw-bold mb-0">€0.00</h2>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-dark border-secondary p-4 text-center">
+            <h6 class="text-light small text-uppercase fw-bold text-warning">Fixed Assets</h6>
+            <h2 id="fixed-assets" class="text-white fw-bold mb-0">€0.00</h2>
+        </div>
+    </div>
+</div>
+
+<div class="card bg-dark border-secondary shadow-lg">
+    <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+        <span class="text-info fw-bold text-uppercase small">Asset Breakdown</span>
+        <button class="btn btn-sm btn-info fw-bold" onclick="showAddAssetModal()">+ Add Asset</button>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0 align-middle">
+            <thead class="table-secondary text-dark">
+                <tr>
+                    <th class="ps-4">Asset Name</th>
+                    <th>Update Value</th>
+                    <th>Current Value</th>
+                    <th class="text-end pe-4">Last Updated</th>
+                </tr>
+            </thead>
+            <tbody id="asset-rows"></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal fade" id="assetModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-info">Add New Asset</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="small text-light">Name</label>
+                    <input type="text" id="assetName" class="form-control bg-black text-white border-secondary">
+                </div>
+                <div class="mb-3">
+                    <label class="small text-light">Type</label>
+                    <select id="assetType" class="form-select bg-black text-white border-secondary">
+                        <option value="Bank">Bank Account</option>
+                        <option value="Brokerage">Brokerage</option>
+                        <option value="Stock">Stocks</option>
+                        <option value="Crypto">Crypto</option>
+                        <option value="House">House (Fixed)</option>
+                        <option value="Car">Car (Fixed)</option>
+                        <option value="Liquid">Other Liquid</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="small text-light">Value (€)</label>
+                    <input type="number" id="assetValue" class="form-control bg-black text-white border-secondary">
+                </div>
+                <button class="btn btn-info w-100 fw-bold" onclick="saveNewAsset()">Save Asset</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let nwChart;
+
+async function loadNetWorth() {
+    const userId = document.getElementById('userSelect').value;
+    
+    // 1. Fetch Assets
+    const res = await fetch(`/api/networth?user_id=${userId}`);
+    const assets = await res.json();
+    
+    let total = 0, liq = 0, fix = 0;
+    const liqTypes = ['Bank', 'Brokerage', 'Stock', 'Liquid', 'Crypto'];
+
+    document.getElementById('asset-rows').innerHTML = assets.map(a => {
+    const val = parseFloat(a.current_value);
+    total += val;
+    if(liqTypes.includes(a.asset_type)) liq += val; else fix += val;
+    
+    return `
+        <tr class="border-bottom border-secondary">
+            <td class="ps-4">
+                <input type="text" class="form-control form-control-sm bg-transparent text-white border-0 fw-bold p-0" 
+                       value="${a.asset_name}" onchange="updateName(${a.id}, this.value)">
+                <small class="text-muted">${a.asset_type}</small>
+            </td>
+            <td>
+                <div class="input-group input-group-sm" style="width: 150px;">
+                    <span class="input-group-text bg-black border-secondary text-success">€</span>
+                    <input type="number" class="form-control bg-black text-info border-secondary" 
+                           value="${val}" onchange="updateValue(${a.id}, this.value)">
+                </div>
+            </td>
+            <td class="text-white">€${val.toLocaleString()}</td>
+            <td class="text-end pe-4">
+                <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteAsset(${a.id})">
+                    <i class="bi bi-trash3"></i>
+                </button>
+            </td>
+        </tr>
+    `;
+}).join('');
+
+    document.getElementById('total-net-worth').innerText = `€${total.toLocaleString()}`;
+    document.getElementById('liquid-assets').innerText = `€${liq.toLocaleString()}`;
+    document.getElementById('fixed-assets').innerText = `€${fix.toLocaleString()}`;
+
+    // 2. Fetch History for Chart
+    const hRes = await fetch(`/api/finance/history?user_id=${userId}`);
+    const hData = await hRes.json();
+    if(hData.dates.length > 0) renderChart(hData);
+}
+
+function renderChart(data) {
+    const ctx = document.getElementById('netWorthChart').getContext('2d');
+    if (nwChart) nwChart.destroy();
+    nwChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.dates,
+            datasets: [
+                { label: 'Net Worth', data: data.nw_values, borderColor: '#0dcaf0', yAxisID: 'y', tension: 0.3, fill: true, backgroundColor: 'rgba(13, 202, 240, 0.1)' },
+                { label: 'Net Income', data: data.inc_values, borderColor: '#2ecc71', yAxisID: 'y1', borderDash: [5,5], tension: 0.3 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                y: { position: 'left', ticks: { color: '#0dcaf0' }, grid: { color: '#222' } },
+                y1: { position: 'right', ticks: { color: '#2ecc71' }, grid: { display: false } }
+            },
+            plugins: { legend: { labels: { color: '#fff' } } }
+        }
+    });
+}
+
+function showAddAssetModal() { new bootstrap.Modal(document.getElementById('assetModal')).show(); }
+
+async function saveNewAsset() {
+    const payload = {
+        user_id: document.getElementById('userSelect').value,
+        name: document.getElementById('assetName').value,
+        type: document.getElementById('assetType').value,
+        value: document.getElementById('assetValue').value
+    };
+    await fetch('/api/networth/update', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    location.reload();
+}
+
+async function updateValue(id, val) {
+    await fetch('/api/networth/update', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id, value: val}) });
+    loadNetWorth();
+}
+
+async function takeSnapshot() {
+    const btn = event.target.closest('button');
+    const originalText = btn.innerHTML;
+    const userId = document.getElementById('userSelect').value;
+
+    console.log("Triggering Snapshot for User:", userId);
+
+    try {
+        // 1. Show loading state on button
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
+
+        const res = await fetch('/api/finance/snapshot', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ user_id: userId })
+        });
+
+        if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+
+        const result = await res.json();
+        console.log("Snapshot result:", result);
+
+        // 2. Alert the user and refresh the UI
+        alert("Success! Financial snapshot recorded for today.");
+        loadNetWorth(); // This will refresh the chart and data
+
+    } catch (err) {
+        console.error("Snapshot Failed:", err);
+        alert("Failed to save snapshot. Check the terminal console.");
+    } finally {
+        // 3. Reset button state
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function updateName(id, newName) {
+    await fetch('/api/networth/edit-name', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: id, name: newName})
+    });
+    // No reload needed for name change
+}
+
+async function deleteAsset(id) {
+    if (!confirm("Are you sure you want to remove this asset? It will be removed from your current total.")) return;
+
+    await fetch('/api/networth/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: id})
+    });
+    loadNetWorth(); // Refresh the table and cards
+}
+
+
+
+
+document.addEventListener('DOMContentLoaded', loadNetWorth);
+</script>
+{% endblock %}
