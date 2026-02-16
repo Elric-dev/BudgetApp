@@ -2,7 +2,6 @@ This `README.md` is designed to position your project as a professional engineer
 
 ### `README.md`
 
-```markdown
 # 📊 BudgetArchitect
 
 **A strategic financial management engine for precision budgeting.** Developed by **Caronte Developers**, this application transforms raw transaction data from Splitwise into a high-level financial roadmap. It is designed to handle individual and household-level financial planning with a focus on data integrity and real-time projections.
