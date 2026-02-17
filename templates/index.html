@@ -1,11 +1,19 @@
 {% extends "layout.html" %}
 
+
 {% block content %}
+<style>
+    /* Custom High-Visibility Classes */
+    .text-light-gray { color: #cccccc !important; }
+    .text-bright-white { color: #ffffff !important; }
+    .text-dim-gold { color: #ffc107; opacity: 0.9; }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h3 class="text-info"><i class="bi bi-speedometer2 me-2"></i>Executive Dashboard</h3>
     <div class="d-flex align-items-center gap-2">
-        <label class="small text-light text-uppercase fw-bold mb-0">Profile:</label>
-        <select id="userSelect" class="form-select bg-dark text-white border-secondary" style="width: 160px;" onchange="updateDashboard()">
+        <label class="small text-white text-uppercase fw-bold mb-0" style="letter-spacing: 1px;">Active Profile:</label>
+        <select id="userSelect" class="form-select bg-dark text-white border-secondary shadow-sm" style="width: 160px;" onchange="updateDashboard()">
             <option value="0">Gus</option>
             <option value="1">Joules</option>
             <option value="2">🏠 Household</option>
@@ -16,28 +24,28 @@
 <div class="row mb-4">
     <div class="col-md-3">
         <div class="card bg-dark border-info p-3 shadow-sm">
-            <h6 class="text-muted small text-uppercase fw-bold">Current Net Worth</h6>
+            <h6 class="text-info small text-uppercase fw-bold" style="opacity: 0.8;">Current Net Worth</h6>
             <h3 id="dash-net-worth" class="text-white fw-bold mb-0">€0.00</h3>
-            <small class="text-info">Total Equity</small>
+            <small class="text-light-gray">Total Equity Assets</small>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card bg-dark border-secondary p-3 shadow-sm">
-            <h6 class="text-muted small text-uppercase fw-bold">Monthly Net Income</h6>
+            <h6 class="text-light-gray small text-uppercase fw-bold">Monthly Net Income</h6>
             <h3 id="dash-income" class="text-success fw-bold mb-0">€0.00</h3>
-            <small class="text-muted">Current Flow</small>
+            <small class="text-light-gray">Inbound Flow</small>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card bg-dark border-secondary p-3 shadow-sm">
-            <h6 class="text-muted small text-uppercase fw-bold">Monthly Spending</h6>
+            <h6 class="text-light-gray small text-uppercase fw-bold">Monthly Spending</h6>
             <h2 id="dash-spending" class="text-warning fw-bold mb-0">€0.00</h2>
-            <small class="text-muted">Total Burn</small>
+            <small class="text-light-gray">Total Burn Rate</small>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card bg-dark border-secondary p-3 shadow-sm">
-            <h6 class="text-muted small text-uppercase fw-bold">Savings Rate</h6>
+            <h6 class="text-light-gray small text-uppercase fw-bold">Savings Rate</h6>
             <h3 id="dash-savings" class="text-white fw-bold mb-0">€0.00</h3>
             <div class="progress mt-2" style="height: 6px; background-color: #000;">
                 <div id="savings-bar" class="progress-bar bg-success" style="width: 0%"></div>
@@ -48,22 +56,60 @@
 
 <div class="row">
     <div class="col-md-8">
-        <div class="card bg-dark border-secondary p-3 shadow-lg">
-            <h6 class="text-info small fw-bold text-uppercase mb-3">Wealth Trend (Wealth vs. Income)</h6>
+        <div class="card bg-dark border-secondary p-4 shadow-lg">
+            <h6 class="text-white small fw-bold text-uppercase mb-3" style="letter-spacing: 1px;">
+                <span class="text-info">Wealth Trend</span> (Wealth vs. Income)
+            </h6>
             <div style="height: 350px;">
                 <canvas id="dashNetWorthChart"></canvas>
             </div>
         </div>
     </div>
     <div class="col-md-4">
-        <div class="card bg-dark border-secondary p-3 shadow-lg">
-            <h6 class="text-info small fw-bold text-uppercase mb-3">Spending Breakdown</h6>
+        <div class="card bg-dark border-secondary p-4 shadow-lg">
+            <h6 class="text-white small fw-bold text-uppercase mb-3" style="letter-spacing: 1px;">
+                <span class="text-info">Spending Breakdown</span>
+            </h6>
             <div style="height: 350px;">
                 <canvas id="dashSpendingChart"></canvas>
             </div>
         </div>
     </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+// Logic remains the same as your previous script.
+// Note: Ensure your Chart.js scales use '#aaa' or '#fff' for ticks instead of '#888'.
+
+function renderNetWorthChart(data) {
+    const ctx = document.getElementById('dashNetWorthChart').getContext('2d');
+    if (nwChart) nwChart.destroy();
+
+    nwChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.dates,
+            datasets: [
+                { label: 'Net Worth', data: data.nw_values, borderColor: '#0dcaf0', yAxisID: 'y', tension: 0.3, fill: true, backgroundColor: 'rgba(13, 202, 240, 0.1)' },
+                { label: 'Net Income', data: data.inc_values, borderColor: '#2ecc71', yAxisID: 'y1', borderDash: [5,5], tension: 0.3 }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                y: { position: 'left', grid: { color: '#333' }, ticks: { color: '#0dcaf0' } },
+                y1: { position: 'right', grid: { display: false }, ticks: { color: '#2ecc71' } },
+                x: { ticks: { color: '#cccccc' } } // Brightened X-axis labels
+            },
+            plugins: { 
+                legend: { labels: { color: '#ffffff', font: { weight: 'bold' } } } 
+            }
+        }
+    });
+}
+// (Remaining JS same as before)
+</script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
@@ -104,30 +150,7 @@ async function updateDashboard() {
     }
 }
 
-function renderNetWorthChart(data) {
-    const ctx = document.getElementById('dashNetWorthChart').getContext('2d');
-    if (nwChart) nwChart.destroy();
 
-    nwChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: data.dates,
-            datasets: [
-                { label: 'Net Worth', data: data.nw_values, borderColor: '#0dcaf0', yAxisID: 'y', tension: 0.3, fill: true, backgroundColor: 'rgba(13, 202, 240, 0.1)' },
-                { label: 'Net Income', data: data.inc_values, borderColor: '#2ecc71', yAxisID: 'y1', borderDash: [5,5], tension: 0.3 }
-            ]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            scales: {
-                y: { position: 'left', grid: { color: '#222' }, ticks: { color: '#0dcaf0' } },
-                y1: { position: 'right', grid: { display: false }, ticks: { color: '#2ecc71' } },
-                x: { ticks: { color: '#888' } }
-            },
-            plugins: { legend: { labels: { color: '#fff' } } }
-        }
-    });
-}
 
 function renderSpendingChart(data) {
     const ctx = document.getElementById('dashSpendingChart').getContext('2d');
