@@ -1,97 +1,266 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-6 mb-4">
-        <div class="card shadow-sm">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">Manual Expense Entry</h5>
-            </div>
-            <div class="card-body">
-                <form id="manualForm">
-                    <div class="mb-3">
-                        <label class="form-label">Date</label>
-                        <input type="date" id="expDate" class="form-control bg-dark text-white border-secondary" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Description</label>
-                        <input type="text" id="expDesc" class="form-control bg-dark text-white border-secondary" placeholder="e.g. Weekly Groceries" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Amount (€)</label>
-                        <input type="number" step="0.01" id="expAmt" class="form-control bg-dark text-white border-secondary" placeholder="0.00" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Category</label>
-                        <select id="expCat" class="form-select bg-dark text-white border-secondary">
-                            {% for cat in categories %}
-                            <option value="{{ cat.id }}">{{ cat.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <button type="button" onclick="saveExpense()" class="btn btn-primary w-100">Save Transaction</button>
-                </form>
+<style>
+    /* High-Contrast Card & Header Styling */
+    .card {
+        background-color: #121212 !important;
+        border: 1px solid #333 !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+    }
+
+    .card-header.bg-primary {
+        background-color: #0d6efd15 !important;
+        border-bottom: 2px solid #0d6efd !important;
+        color: #0d6efd !important;
+    }
+
+    .card-header.bg-info {
+        background-color: #0dcaf015 !important;
+        border-bottom: 2px solid #0dcaf0 !important;
+        color: #0dcaf0 !important;
+    }
+
+    /* Form Labels & Inputs */
+    .form-label {
+        color: #e0e0e0 !important;
+        font-weight: 500;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 1px;
+    }
+
+    .form-control, .form-select {
+        background-color: #1a1a1a !important;
+        color: #ffffff !important;
+        border: 1px solid #444 !important;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: #0dcaf0 !important;
+        box-shadow: 0 0 10px rgba(13, 202, 240, 0.3);
+    }
+
+    /* Split Controls Styling */
+    .input-group-text {
+        background-color: #000 !important;
+        border: 1px solid #444 !important;
+        color: #adb5bd !important;
+    }
+
+    .text-pink { color: #ff69b4 !important; }
+    .text-cyan { color: #0dcaf0 !important; }
+
+    /* Progress Bar for Budget Impact */
+    .progress {
+        background-color: #080808 !important;
+        border: 1px solid #222;
+    }
+</style>
+
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-md-7 mb-4">
+            <div class="card h-100 shadow-lg">
+                <div class="card-header bg-primary py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-pencil-square me-2"></i>Manual Expense Entry</h5>
+                </div>
+                <div class="card-body p-4">
+                    <form id="manualForm">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Date</label>
+                                <input type="date" id="expDate" class="form-control" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Category</label>
+                                <select id="expCat" class="form-select" onchange="calculateImpact()">
+                                    {% for cat in categories %}
+                                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <input type="text" id="expDesc" class="form-control" placeholder="e.g. Weekly Groceries" required>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">Total Amount (€)</label>
+                            <div class="input-group input-group-lg">
+                                <span class="input-group-text text-success fw-bold">€</span>
+                                <input type="number" step="0.01" id="expAmt" class="form-control" placeholder="0.00" oninput="calculateImpact()" required>
+                            </div>
+                        </div>
+
+                        <div class="p-3 rounded border border-secondary mb-4 bg-black">
+                            <label class="form-label d-flex justify-content-between">
+                                Cost Split Logic
+                                <span class="text-info fw-bold" id="split-label">50/50 Split</span>
+                            </label>
+                            
+                            <div class="btn-group w-100 mb-3" role="group">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setSplit(50, 50)">Equal (50/50)</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setSplit(100, 0)">Only Gus</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="setSplit(0, 100)">Only Joules</button>
+                            </div>
+
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <div class="input-group">
+                                        <span class="input-group-text text-cyan">Gus</span>
+                                        <input type="number" id="splitGus" class="form-control text-center" value="50" oninput="syncSplit('gus')">
+                                        <span class="input-group-text">%</span>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="input-group">
+                                        <span class="input-group-text text-pink">Joules</span>
+                                        <input type="number" id="splitJoules" class="form-control text-center" value="50" oninput="syncSplit('joules')">
+                                        <span class="input-group-text">%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label d-flex justify-content-between">
+                                Individual Budget Impact
+                                <span id="impact-percent" class="text-info">0%</span>
+                            </label>
+                            <div class="progress" style="height: 8px;">
+                                <div id="impact-bar" class="progress-bar bg-info" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <button type="button" onclick="saveExpense()" class="btn btn-primary w-100 fw-bold py-3">
+                            <i class="bi bi-cloud-arrow-up-fill me-2"></i>SAVE TRANSACTION
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class="col-md-6 mb-4">
-        <div class="card shadow-sm h-100">
-            <div class="card-header bg-info text-white">
-                <h5 class="mb-0">Import Splitwise CSV</h5>
-            </div>
-            <div class="card-body d-flex flex-column justify-content-center">
-                <p class="text-muted">Upload your latest Splitwise export. Duplicates will be skipped automatically.</p>
-                <input type="file" id="csvFile" class="form-control bg-dark text-white border-secondary mb-3">
-                <button type="button" onclick="uploadCSV()" class="btn btn-outline-info">Process File</button>
-                <div id="uploadStatus" class="mt-3"></div>
+        <div class="col-md-5 mb-4">
+            <div class="card h-100 shadow-lg border-0">
+                <div class="card-header bg-info py-3 text-white">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-file-earmark-arrow-up me-2"></i>Import Splitwise CSV</h5>
+                </div>
+                <div class="card-body d-flex flex-column justify-content-center p-4">
+                    <div class="text-center mb-4">
+                        <i class="bi bi-cloud-upload text-info opacity-25" style="font-size: 4rem;"></i>
+                        <h6 class="text-white mt-3">Bulk Data Sync</h6>
+                        <p class="text-muted small">Upload your latest Splitwise CSV export. The engine will skip duplicates automatically.</p>
+                    </div>
+                    <input type="file" id="csvFile" class="form-control bg-dark text-white border-secondary mb-3">
+                    <button type="button" onclick="uploadCSV()" class="btn btn-outline-info fw-bold py-2">
+                        PROCESS FILE
+                    </button>
+                    <div id="uploadStatus" class="mt-3 text-center"></div>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-[Image of a web form for manual expense entry and a file upload area for CSV files]
-
 <script>
+let budgetTargets = {};
+
+// 1. Initial Load: Fetch Budgets for live calculations
+document.addEventListener('DOMContentLoaded', async () => {
+    // Set default date to today
+    document.getElementById('expDate').valueAsDate = new Date();
+    
+    // Fetch budget targets for the active profile (Gus by default)
+    const res = await fetch(`/api/budget/list?user_id=0`);
+    const data = await res.json();
+    data.forEach(item => { budgetTargets[item.id] = item.amount; });
+});
+
+// 2. Split Logic Syncing
+function setSplit(gus, joules) {
+    document.getElementById('splitGus').value = gus;
+    document.getElementById('splitJoules').value = joules;
+    updateSplitLabel();
+    calculateImpact();
+}
+
+function syncSplit(origin) {
+    let gusInput = document.getElementById('splitGus');
+    let joulesInput = document.getElementById('splitJoules');
+    
+    if (origin === 'gus') {
+        let val = Math.min(Math.max(parseFloat(gusInput.value) || 0, 0), 100);
+        gusInput.value = val;
+        joulesInput.value = (100 - val);
+    } else {
+        let val = Math.min(Math.max(parseFloat(joulesInput.value) || 0, 0), 100);
+        joulesInput.value = val;
+        gusInput.value = (100 - val);
+    }
+    updateSplitLabel();
+    calculateImpact();
+}
+
+function updateSplitLabel() {
+    const gus = document.getElementById('splitGus').value;
+    const joules = document.getElementById('splitJoules').value;
+    document.getElementById('split-label').innerText = `${gus}/${joules} Split`;
+}
+
+// 3. Budget Impact Visualization
+function calculateImpact() {
+    const totalAmount = parseFloat(document.getElementById('expAmt').value) || 0;
+    const gusShare = parseFloat(document.getElementById('splitGus').value) / 100;
+    const myAmount = totalAmount * gusShare;
+    
+    const catId = document.getElementById('expCat').value;
+    const target = budgetTargets[catId] || 0;
+
+    const bar = document.getElementById('impact-bar');
+    const label = document.getElementById('impact-percent');
+
+    if (target > 0) {
+        const pct = (myAmount / target) * 100;
+        bar.style.width = Math.min(pct, 100) + '%';
+        label.innerText = pct.toFixed(1) + '%';
+        
+        // Dynamic colors based on budget hit
+        if (pct > 80) bar.className = "progress-bar bg-danger";
+        else if (pct > 40) bar.className = "progress-bar bg-warning";
+        else bar.className = "progress-bar bg-info";
+    } else {
+        bar.style.width = '0%';
+        label.innerText = 'No Target Set';
+    }
+}
+
+// 4. Submission
 async function saveExpense() {
     const payload = {
         date: document.getElementById('expDate').value,
         description: document.getElementById('expDesc').value,
-        amount: document.getElementById('expAmt').value,
-        category_id: document.getElementById('expCat').value
+        amount: parseFloat(document.getElementById('expAmt').value),
+        category_id: document.getElementById('expCat').value,
+        split_gus: parseFloat(document.getElementById('splitGus').value),
+        split_joules: parseFloat(document.getElementById('splitJoules').value)
     };
 
-    if(!payload.date || !payload.amount) return alert("Please fill in Date and Amount");
-
-    const res = await fetch('/api/add_expense', {
+    const res = await fetch('/api/expense/manual', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
     });
-    
+
     if (res.ok) {
-        alert("Expense Added Successfully!");
+        alert("Transaction Recorded Successfully!");
         document.getElementById('manualForm').reset();
+        document.getElementById('expDate').valueAsDate = new Date();
+    } else {
+        alert("Error saving transaction.");
     }
-}
-
-async function uploadCSV() {
-    const fileInput = document.getElementById('csvFile');
-    if(!fileInput.files[0]) return alert("Select a file first");
-
-    const statusDiv = document.getElementById('uploadStatus');
-    statusDiv.innerHTML = "Processing...";
-
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-
-    const res = await fetch('/api/upload_csv', {
-        method: 'POST',
-        body: formData
-    });
-    
-    const result = await res.json();
-    statusDiv.innerHTML = `<span class="text-success">${result.status || result.error}</span>`;
 }
 </script>
 {% endblock %}

@@ -12,7 +12,7 @@
             <thead class="table-secondary text-dark">
                 <tr>
                     <th style="width: 120px;">Date</th>
-                    <th>Category</th>
+                    <th style="width: 200px;">Category</th>
                     <th>Description</th>
                     <th>Total (€)</th>
                     <th>Gus Share</th>
@@ -27,20 +27,27 @@
 </div>
 
 <nav aria-label="Page navigation" class="mt-4">
-    <ul class="pagination justify-content-center" id="pagination-controls">
-        </ul>
+    <ul class="pagination justify-content-center" id="pagination-controls"></ul>
 </nav>
 
 <style>
-    /* Fix for date readability */
     .date-text {
-        color: #ffc107 !important; /* Amber/Yellow for high contrast */
+        color: #ffc107 !important;
         font-family: 'Courier New', Courier, monospace;
         font-weight: bold;
     }
     
     .table-hover tbody tr:hover {
         background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    /* Category Dropdown Styling */
+    .cat-select {
+        background-color: #080808 !important;
+        color: #0dcaf0 !important;
+        border: 1px solid #444 !important;
+        font-size: 0.85rem;
+        padding: 0.25rem 0.5rem;
     }
 
     [contenteditable="true"]:focus {
@@ -50,31 +57,27 @@
         border-radius: 4px;
     }
 
-    .page-link {
-        background-color: #1f1f1f;
-        border-color: #333;
-        color: #0dcaf0;
-    }
-
-    .page-item.active .page-link {
-        background-color: #0dcaf0;
-        border-color: #0dcaf0;
-        color: #000;
-    }
-
-    .page-item.disabled .page-link {
-        background-color: #121212;
-        border-color: #222;
-        color: #444;
-    }
+    .page-link { background-color: #1f1f1f; border-color: #333; color: #0dcaf0; }
+    .page-item.active .page-link { background-color: #0dcaf0; border-color: #0dcaf0; color: #000; }
 </style>
 
-[Image of a data table with pagination and sorting controls]
+
 
 <script>
 let currentPage = 1;
+let categoriesList = []; // Global store for category dropdown
+
+// Fetch categories once to use in the table rows
+async function fetchCategories() {
+    try {
+        const res = await fetch('/api/categories'); // Adjust endpoint as needed
+        categoriesList = await res.json();
+    } catch (e) { console.error("Could not load categories", e); }
+}
 
 async function loadTable(page = 1) {
+    if (categoriesList.length === 0) await fetchCategories();
+    
     currentPage = page;
     try {
         const res = await fetch(`/api/transactions?page=${page}`);
@@ -88,21 +91,37 @@ async function loadTable(page = 1) {
             return;
         }
 
-        container.innerHTML = data.transactions.map(t => `
-            <tr id="row-${t.id}">
-                <td class="date-text">${t.clean_date}</td>
-                <td><span class="badge rounded-pill bg-outline-info border border-info text-info">${t.category_name}</span></td>
-                <td contenteditable="true" id="desc-${t.id}">${t.description}</td>
-                <td contenteditable="true" id="amt-${t.id}" class="fw-bold text-white">${t.total_amount}</td>
-                <td contenteditable="true" id="gus-${t.id}" class="text-success">${t.Gus_share}</td>
-                <td contenteditable="true" id="joules-${t.id}" class="text-warning">${t.Joules_share}</td>
-                <td class="text-center">
-                    <button onclick="saveEdit(${t.id})" class="btn btn-sm btn-success">
-                        <i class="bi bi-check-lg"></i> Save
-                    </button>
-                </td>
-            </tr>
-        `).join('');
+       container.innerHTML = data.transactions.map(t => {
+    // Generate options and explicitly check for a match with t.category_id
+    const catOptions = categoriesList.map(c => {
+        // Compare the category ID from the list to the transaction's category_id
+        const isSelected = (c.id === t.category_id) ? 'selected' : '';
+        
+        // Show parent name if it exists for better context (e.g., "Heat (Utilities)")
+        const displayLabel = c.parent_name ? `${c.name} (${c.parent_name})` : c.name;
+        
+        return `<option value="${c.id}" ${isSelected}>${displayLabel}</option>`;
+    }).join('');
+
+    return `
+    <tr id="row-${t.id}">
+        <td class="date-text">${t.clean_date}</td>
+        <td>
+            <select class="form-select form-select-sm cat-select" id="cat-${t.id}">
+                ${catOptions}
+            </select>
+        </td>
+        <td contenteditable="true" id="desc-${t.id}">${t.description}</td>
+        <td contenteditable="true" id="amt-${t.id}" class="fw-bold text-white">${t.total_amount}</td>
+        <td contenteditable="true" id="gus-${t.id}" class="text-success">${t.Gus_share}</td>
+        <td contenteditable="true" id="joules-${t.id}" class="text-warning">${t.Joules_share}</td>
+        <td class="text-center">
+            <button onclick="saveEdit(${t.id})" class="btn btn-sm btn-success">
+                <i class="bi bi-check-lg"></i> Save
+            </button>
+        </td>
+    </tr>`;
+}).join('');
         
         renderPagination(data.total, page);
     } catch (error) {
@@ -110,47 +129,14 @@ async function loadTable(page = 1) {
     }
 }
 
-function renderPagination(totalEntries, page) {
-    const totalPages = Math.ceil(totalEntries / 20);
-    const controls = document.getElementById('pagination-controls');
-    let html = '';
-
-    // Previous Button
-    html += `
-        <li class="page-item ${page === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="loadTable(${page - 1})">Previous</a>
-        </li>
-    `;
-
-    // Page Numbers (Showing a max of 5 pages around the current page for brevity)
-    let startPage = Math.max(1, page - 2);
-    let endPage = Math.min(totalPages, page + 2);
-
-    for (let i = startPage; i <= endPage; i++) {
-        html += `
-            <li class="page-item ${i === page ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="loadTable(${i})">${i}</a>
-            </li>
-        `;
-    }
-
-    // Next Button
-    html += `
-        <li class="page-item ${page === totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="loadTable(${page + 1})">Next</a>
-        </li>
-    `;
-
-    controls.innerHTML = html;
-}
-
 async function saveEdit(id) {
     const payload = {
         id: id,
+        category_id: document.getElementById(`cat-${id}`).value,
         description: document.getElementById(`desc-${id}`).innerText,
-        amount: document.getElementById(`amt-${id}`).innerText,
-        gus: document.getElementById(`gus-${id}`).innerText,
-        joules: document.getElementById(`joules-${id}`).innerText
+        total_amount: document.getElementById(`amt-${id}`).innerText,
+        Gus_share: document.getElementById(`gus-${id}`).innerText,
+        Joules_share: document.getElementById(`joules-${id}`).innerText
     };
 
     try {
@@ -160,8 +146,7 @@ async function saveEdit(id) {
             body: JSON.stringify(payload)
         });
         
-        const result = await res.json();
-        if (result.status === "success") {
+        if (res.ok) {
             const btn = document.querySelector(`#row-${id} button`);
             btn.innerHTML = '<i class="bi bi-check-all"></i> Saved!';
             btn.classList.replace('btn-success', 'btn-outline-success');
@@ -177,7 +162,20 @@ async function saveEdit(id) {
     }
 }
 
-// Initialize on load
+function renderPagination(totalEntries, page) {
+    const totalPages = Math.ceil(totalEntries / 20);
+    const controls = document.getElementById('pagination-controls');
+    let html = '';
+    html += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${page - 1})">Previous</a></li>`;
+    let startPage = Math.max(1, page - 2);
+    let endPage = Math.min(totalPages, page + 2);
+    for (let i = startPage; i <= endPage; i++) {
+        html += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" onclick="loadTable(${i})">${i}</a></li>`;
+    }
+    html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${page + 1})">Next</a></li>`;
+    controls.innerHTML = html;
+}
+
 document.addEventListener('DOMContentLoaded', () => loadTable(1));
 </script>
 {% endblock %}

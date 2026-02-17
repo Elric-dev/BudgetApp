@@ -158,28 +158,45 @@ def update_category():
     conn.close()
     return jsonify({"status": "success"})
 
-@app.route('/api/add_expense', methods=['POST'])
-def add_expense():
-    """Saves a manually entered expense"""
+@app.route('/api/expense/manual', methods=['POST'])
+def save_manual_expense():
     data = request.json
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Simple manual logic: assume 50/50 split for quick entry
-    amount = float(data['amount'])
-    share = amount / 2
-    
-    sql = """INSERT INTO transactions 
-             (date, description, total_amount, user_id, category_id, payer_id, Gus_share, Joules_share, is_split) 
-             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-    
-    # Hardcoding user/payer as 0 (Gus) for simple manual entries
-    cursor.execute(sql, (data['date'], data['description'], amount, 0, data['category_id'], 0, share, share, True))
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return jsonify({"status": "success"})
+    try:
+        # user_id 0 = Gus, 1 = Joules as per your preferences
+        query = """
+            INSERT INTO transactions 
+            (date, description, total_amount, category_id, user_id, Gus_share, Joules_share, is_split)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        total = float(data['amount'])
+        # Calculating exact Euro shares from the percentages sent by the UI
+        gus_share = total * (float(data['split_gus']) / 100)
+        joules_share = total * (float(data['split_joules']) / 100)
+        
+        values = (
+            data['date'],
+            data['description'],
+            total,
+            int(data['category_id']),
+            0, # Defaulting to Gus (0) as the primary owner for manual entry
+            gus_share,
+            joules_share,
+            1  # is_split = True
+        )
+        
+        cursor.execute(query, values)
+        conn.commit()
+        return jsonify({"status": "success"}), 201
+    except Exception as e:
+        print(f"!!! MANUAL SAVE ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.route('/api/upload_csv', methods=['POST'])
 def upload_csv():
@@ -217,7 +234,7 @@ def get_transactions_paginated():
     cursor.execute("SELECT COUNT(*) as count FROM transactions")
     total_count = cursor.fetchone()['count']
     
-    # Query: Added Category Name and Date Formatting
+    # Query: Added t.category_id to the SELECT statement
     query = """
         SELECT 
             t.id, 
@@ -226,9 +243,10 @@ def get_transactions_paginated():
             t.total_amount, 
             t.Gus_share, 
             t.Joules_share, 
+            t.category_id,
             c.name as category_name
         FROM transactions t
-        JOIN categories c ON t.category_id = c.id
+        LEFT JOIN categories c ON t.category_id = c.id
         ORDER BY t.date DESC 
         LIMIT 20 OFFSET %s
     """
@@ -244,17 +262,36 @@ def update_transaction():
     data = request.json
     conn = get_db_connection()
     cursor = conn.cursor()
-    # Using your specific capitalization for Gus_share and Joules_share
-    query = """
-        UPDATE transactions 
-        SET description = %s, total_amount = %s, Gus_share = %s, Joules_share = %s 
-        WHERE id = %s
-    """
-    cursor.execute(query, (data['description'], data['amount'], data['gus'], data['joules'], data['id']))
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return jsonify({"status": "success"})
+    
+    try:
+        # Aligned with your specific column names: Gus_share, Joules_share, total_amount
+        query = """
+            UPDATE transactions 
+            SET category_id = %s, 
+                description = %s, 
+                total_amount = %s, 
+                Gus_share = %s, 
+                Joules_share = %s 
+            WHERE id = %s
+        """
+        values = (
+            int(data['category_id']),
+            data['description'],
+            float(data['total_amount']),
+            float(data['Gus_share']),
+            float(data['Joules_share']),
+            int(data['id'])
+        )
+        
+        cursor.execute(query, values)
+        conn.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        print(f"!!! UPDATE ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 ###### ------- Budget vs Income API Endpoint ------- ######
 @app.route('/api/budget/save', methods=['POST'])
@@ -374,6 +411,24 @@ def handle_income():
     cursor.close()
     conn.close()
     return jsonify(streams)
+
+@app.route('/api/categories', methods=['GET'])
+def get_categories():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True) # Return as dict for JSON
+    
+    try:
+        # Alphabetical order by parent then name for a clean UI
+        cursor.execute("SELECT id, name, parent_name FROM categories ORDER BY parent_name, name")
+        categories = cursor.fetchall()
+        return jsonify(categories)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
 
 @app.route('/api/budget/list')
 def list_budget_categories():
