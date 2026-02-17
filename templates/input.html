@@ -239,14 +239,16 @@ function calculateImpact() {
 
 // 4. Submission
 async function saveExpense() {
-    const payload = {
-        date: document.getElementById('expDate').value,
-        description: document.getElementById('expDesc').value,
-        amount: parseFloat(document.getElementById('expAmt').value),
-        category_id: document.getElementById('expCat').value,
-        split_gus: parseFloat(document.getElementById('splitGus').value),
-        split_joules: parseFloat(document.getElementById('splitJoules').value)
-    };
+const catSelect = document.getElementById('expCat');
+const payload = {
+    date: document.getElementById('expDate').value,
+    description: document.getElementById('expDesc').value,
+    amount: parseFloat(document.getElementById('expAmt').value),
+    category_id: catSelect.value,
+    category_name: catSelect.options[catSelect.selectedIndex].text, // ADD THIS
+    split_gus: parseFloat(document.getElementById('splitGus').value),
+    split_joules: parseFloat(document.getElementById('splitJoules').value)
+};
 
     const res = await fetch('/api/expense/manual', {
         method: 'POST',

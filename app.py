@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from datetime import datetime
+from importer import generate_transaction_hash
 
 # Load environment variables from .env file
 load_dotenv()
@@ -158,6 +159,9 @@ def update_category():
     conn.close()
     return jsonify({"status": "success"})
 
+
+from importer import generate_transaction_hash
+
 @app.route('/api/expense/manual', methods=['POST'])
 def save_manual_expense():
     data = request.json
@@ -165,34 +169,43 @@ def save_manual_expense():
     cursor = conn.cursor()
     
     try:
-        # user_id 0 = Gus, 1 = Joules as per your preferences
+        # Create a mock row that matches EXACTLY what importer.py expects
+        mock_row = {
+            'Date': data.get('date'),
+            'Description': data.get('description'),
+            'Cost': data.get('amount'),         # importer.py uses 'Cost'
+            'Category': data.get('category_name') # importer.get uses 'Category'
+        }
+        
+        # This will now work without changing importer.py
+        t_hash = generate_transaction_hash(mock_row)
+
         query = """
             INSERT INTO transactions 
-            (date, description, total_amount, category_id, user_id, Gus_share, Joules_share, is_split)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            (date, description, total_amount, user_id, category_id, payer_id, 
+             Gus_share, Joules_share, is_split, transaction_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         
         total = float(data['amount'])
-        # Calculating exact Euro shares from the percentages sent by the UI
-        gus_share = total * (float(data['split_gus']) / 100)
-        joules_share = total * (float(data['split_joules']) / 100)
+        g_share = total * (float(data['split_gus']) / 100)
+        j_share = total * (float(data['split_joules']) / 100)
         
         values = (
-            data['date'],
-            data['description'],
-            total,
+            data['date'], data['description'], total,
+            0, # user_id Gus
             int(data['category_id']),
-            0, # Defaulting to Gus (0) as the primary owner for manual entry
-            gus_share,
-            joules_share,
-            1  # is_split = True
+            0, # payer_id Gus
+            g_share, j_share,
+            1 if (g_share > 0 and j_share > 0) else 0,
+            t_hash
         )
         
         cursor.execute(query, values)
         conn.commit()
         return jsonify({"status": "success"}), 201
     except Exception as e:
-        print(f"!!! MANUAL SAVE ERROR: {e}")
+        print(f"!!! CRASH LOG: {e}") # This will show the KeyError in your terminal
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
