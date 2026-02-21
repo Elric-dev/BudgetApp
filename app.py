@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from datetime import datetime
 from importer import generate_transaction_hash
+import traceback
+from importer import run_import 
 
 # Load environment variables
 load_dotenv()
@@ -255,14 +257,36 @@ def save_manual_expense():
         cursor.close()
         conn.close()
 
+# At the top of app.py, add your importer function
+
+
 @app.route('/api/upload_csv', methods=['POST'])
 def upload_csv():
-    if 'file' not in request.files: return jsonify({"error": "No file"}), 400
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    
     file = request.files['file']
     filename = secure_filename(file.filename)
     filepath = os.path.join('/tmp', filename)
     file.save(filepath)
-    return jsonify({"status": f"Uploaded {filename}. Run importer script manually to process."})
+    
+    try:
+        # Check if run_import actually exists and is imported
+        from importer import run_import
+        
+        # Log the attempt in the terminal
+        print(f"--- Starting Import for: {filepath} ---")
+        
+        run_import(filepath)
+        
+        print("--- Import Successful ---")
+        return jsonify({"status": "Database updated successfully."})
+        
+    except Exception as e:
+        # This prints the EXACT error to your terminal (VS Code/Terminal)
+        print("!!! IMPORT CRASHED !!!")
+        traceback.print_exc() 
+        return jsonify({"error": "Check server logs for database/importer crash."}), 500
 
 # ==========================================
 # 4. BUDGET & INCOME PAGES
@@ -325,6 +349,119 @@ def handle_income():
     cursor.close()
     conn.close()
     return jsonify(streams)
+
+## Planned vs Actual Budget
+@app.route('/api/budget/progress')
+def budget_progress():
+    user_id = int(request.args.get('user_id', 0))
+    parent_name = request.args.get('parent_name') # New parameter for drill-down
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Determine the share column based on user_id
+    if user_id == 2:
+        share_calc = "t.Gus_share + t.Joules_share"
+        user_filter = "(t.Gus_share > 0 OR t.Joules_share > 0)"
+    else:
+        share_calc = "t.Gus_share" if user_id == 0 else "t.Joules_share"
+        user_filter = f"t.{'Gus' if user_id == 0 else 'Joules'}_share > 0"
+
+    try:
+        if parent_name:
+            # DRILL-DOWN: Show individual categories within a parent
+            query = f"""
+                SELECT 
+                    c.name as label,
+                    COALESCE(b.target_amount, 0) as budget,
+                    COALESCE(SUM({share_calc}), 0) as actual
+                FROM categories c
+                LEFT JOIN budgets b ON c.name = b.category_name AND b.user_id = %s
+                LEFT JOIN transactions t ON c.id = t.category_id 
+                    AND MONTH(t.date) = MONTH(CURRENT_DATE())
+                    AND YEAR(t.date) = YEAR(CURRENT_DATE())
+                WHERE c.parent_name = %s
+                GROUP BY c.name, b.target_amount
+            """
+            cursor.execute(query, (user_id, parent_name))
+        else:
+            # MAIN VIEW: Aggregate everything by Parent Name
+            query = f"""
+                SELECT 
+                    COALESCE(c.parent_name, 'Other') as label,
+                    SUM(DISTINCT b.target_amount) as budget,
+                    COALESCE(SUM({share_calc}), 0) as actual
+                FROM categories c
+                LEFT JOIN (
+                    SELECT category_name, SUM(target_amount) as target_amount 
+                    FROM budgets WHERE user_id = %s GROUP BY category_name
+                ) b ON c.name = b.category_name
+                LEFT JOIN transactions t ON c.id = t.category_id 
+                    AND MONTH(t.date) = MONTH(CURRENT_DATE())
+                    AND YEAR(t.date) = YEAR(CURRENT_DATE())
+                WHERE {user_filter}
+                GROUP BY c.parent_name
+            """
+            cursor.execute(query, (user_id,))
+            
+        rows = cursor.fetchall()
+        return jsonify(rows)
+    finally:
+        cursor.close()
+        conn.close()
+
+
+## Burn rate calculation
+@app.route('/api/finance/burn-rate')
+def calculate_burn_rate():
+    user_id = int(request.args.get('user_id', 0))
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    # Share logic based on profile
+    if user_id == 2:
+        share_calc = "SUM(t.Gus_share + t.Joules_share)"
+        user_filter = "(t.Gus_share > 0 OR t.Joules_share > 0)"
+    else:
+        share_calc = f"SUM(t.{'Gus' if user_id == 0 else 'Joules'}_share)"
+        user_filter = f"t.{'Gus' if user_id == 0 else 'Joules'}_share > 0"
+
+    periods = {
+        "30d": "INTERVAL 30 DAY",
+        "3m": "INTERVAL 3 MONTH",
+        "1y": "INTERVAL 1 YEAR",
+        "lifetime": None
+    }
+    
+    results = {}
+    try:
+        for key, interval in periods.items():
+            date_condition = f"AND t.date >= DATE_SUB(CURDATE(), {interval})" if interval else ""
+            
+            # Query for total spend in period
+            query = f"""
+                SELECT {share_calc} as total, 
+                       TIMESTAMPDIFF(MONTH, MIN(t.date), CURDATE()) + 1 as months
+                FROM transactions t
+                WHERE {user_filter} {date_condition}
+            """
+            cursor.execute(query)
+            row = cursor.fetchone()
+            
+            total_spend = float(row['total'] or 0)
+            
+            # For 30d, months will be 1. For others, we calculate the actual avg.
+            num_months = 1 if key == "30d" else (row['months'] or 1)
+            avg_burn = total_spend / num_months
+            
+            results[key] = {
+                "actual": avg_burn,
+                "cushioned": avg_burn * 1.15 # The 15% cushion
+            }
+            
+        return jsonify(results)
+    finally:
+        cursor.close()
+        conn.close()
 
 # ==========================================
 # 5. NET WORTH & ASSETS PAGES

@@ -92,7 +92,33 @@
         </div>
     </div>
 </div>
+<div class="card bg-dark border-secondary p-4 shadow-lg mt-4">
+    <h6 id="budget-card-header" class="text-white small fw-bold text-uppercase mb-4" style="letter-spacing: 1px;">
+        <i class="bi bi-bar-chart-steps text-success me-2"></i>Budget vs Actual (Monthly)
+    </h6>
+    
+    <div id="budget-progress-container">
+        </div>
+</div>
 
+<div class="card bg-dark border-warning p-4 shadow-lg mt-4">
+    <h6 class="text-white small fw-bold text-uppercase mb-3" style="letter-spacing: 1px;">
+        <i class="bi bi-fire text-warning me-2"></i>Burn Rate Analysis (+15% Cushion)
+    </h6>
+    <div class="table-responsive">
+        <table class="table table-dark table-borderless align-middle mb-0">
+            <thead>
+                <tr class="text-light-gray small text-uppercase">
+                    <th>Horizon</th>
+                    <th>Actual Avg</th>
+                    <th class="text-info">Safe Target (Cushioned)</th>
+                </tr>
+            </thead>
+            <tbody id="burn-rate-body">
+                </tbody>
+        </table>
+    </div>
+</div>
 
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -100,11 +126,98 @@
 <script>
 let nwChart, spendingChart;
 
+
+
+
+async function updateBudgetProgress(parentName = null) {
+    const userId = document.getElementById('userSelect').value;
+    const container = document.getElementById('budget-progress-container');
+    const header = document.querySelector('#budget-card-header'); // Add an ID to your card title
+    
+    try {
+        const url = `/api/budget/progress?user_id=${userId}${parentName ? `&parent_name=${parentName}` : ''}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        container.innerHTML = '';
+        if (parentName) {
+            header.innerHTML = `<span class="text-info" style="cursor:pointer" onclick="updateBudgetProgress()">←</span> ${parentName} Breakdown`;
+        } else {
+            header.innerHTML = `<i class="bi bi-bar-chart-steps text-success me-2"></i>Budget vs Actual`;
+        }
+
+        data.forEach(item => {
+            const actual = Number(item.actual || 0);
+            const budget = Number(item.budget || 0);
+            const percent = budget > 0 ? (actual / budget) * 100 : 0;
+            const barColor = percent > 100 ? 'bg-danger' : 'bg-success';
+            
+            const html = `
+                <div class="mb-3" style="cursor: ${parentName ? 'default' : 'pointer'}" 
+                     onclick="${parentName ? '' : `updateBudgetProgress('${item.label}')`}">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-white small fw-bold">${item.label}</span>
+                        <span class="text-light-gray small">
+                            €${actual.toFixed(0)} / €${budget.toFixed(0)} (${percent.toFixed(0)}%)
+                        </span>
+                    </div>
+                    <div class="progress" style="height: 10px; background-color: #000;">
+                        <div class="progress-bar ${barColor}" style="width: ${Math.min(percent, 100)}%"></div>
+                    </div>
+                </div>
+            `;
+            container.innerHTML += html;
+        });
+    } catch (err) {
+        console.error("Budget Refresh Failed:", err);
+    }
+}
 /**
  * Main dashboard refresh. Triggered on Profile change.
  */
+async function updateBurnRate() {
+    const userId = document.getElementById('userSelect').value;
+    const container = document.getElementById('burn-rate-body');
+    
+    try {
+        const res = await fetch(`/api/finance/burn-rate?user_id=${userId}`);
+        const data = await res.json();
+        
+        // Defined in the exact order you requested
+        const order = ["3m", "1y", "lifetime"];
+        const labels = { 
+            "3m": "Last 3 Months", 
+            "1y": "Last Year", 
+            "lifetime": "Lifetime" 
+        };
+
+        container.innerHTML = '';
+
+        order.forEach(key => {
+            if (data[key]) {
+                const row = `
+                    <tr class="border-bottom border-secondary">
+                        <td class="text-white py-3">${labels[key]}</td>
+                        <td class="text-light-gray">€${data[key].actual.toLocaleString('en-IE', {maximumFractionDigits: 0})}</td>
+                        <td class="text-info fw-bold">€${data[key].cushioned.toLocaleString('en-IE', {maximumFractionDigits: 0})}</td>
+                    </tr>
+                `;
+                container.innerHTML += row;
+            }
+        });
+    } catch (err) {
+        console.error("Burn Rate Sync Failed:", err);
+    }
+}
+
+// Remember to call this in your main updateDashboard() function
+
+
+
 async function updateDashboard() {
     const userId = document.getElementById('userSelect').value;
+    updateBudgetProgress();
+    updateBurnRate();
 
     try {
         // 1. Update KPI Summary (Always current context)

@@ -80,21 +80,24 @@ python app.py
 
 I will be actively evolving this tool to include advanced wealth management features:
 
-### 1. Budget vs. Actual (BvA) Visualization
-
-Implementation of real-time progress bars on the main dashboard to compare current month spending against the targets defined in the Budget Planner.
-
-### 2. Automated Buffer Allocation
+### 1. Automated Buffer Allocation
 
 Logic to automatically calculate "Excess Liquidity" after targets and savings goals are met, suggesting rebalancing amounts for investment accounts.
 
-### 3. Splitwise API Integration
+### 2. Splitwise API Integration
 
 Moving from manual CSV imports to a direct API sync to provide hourly updates on household spending.
 
-### 4. Machine Learning Forecasting
+### 3. Machine Learning Forecasting
 
 Integration of a predictive model to forecast future "Burn Rates" based on historical seasonality (e.g., higher utility costs in winter).
+
+### 4. Debt Tracker:
+Integrate a debt tracking section within the Net Worth area. Display the total debt amount and the debt-to-net-worth ratio.
+
+### 5. Savings & Investment Page: Create a new dedicated page for allocating savings and investments, covering:
+Compulsory retirement accounts. Brokerage accounts. Standard savings accounts.
+
 
 
 ---
