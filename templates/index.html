@@ -1,50 +1,51 @@
 {% extends "layout.html" %}
 
-
 {% block content %}
 <style>
-    /* Custom High-Visibility Classes */
+    /* High-Visibility Overrides for Dark Mode */
     .text-light-gray { color: #cccccc !important; }
-    .text-bright-white { color: #ffffff !important; }
-    .text-dim-gold { color: #ffc107; opacity: 0.9; }
+    .card { transition: transform 0.2s; background-color: #1a1a1a !important; }
+    .card:hover { transform: translateY(-3px); }
+    #chart-center-label { pointer-events: none; }
+    .form-select-sm { font-size: 0.75rem; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h3 class="text-info"><i class="bi bi-speedometer2 me-2"></i>Executive Dashboard</h3>
     <div class="d-flex align-items-center gap-2">
-        <label class="small text-white text-uppercase fw-bold mb-0" style="letter-spacing: 1px;">Active Profile:</label>
+        <label class="small text-white text-uppercase fw-bold mb-0" style="letter-spacing: 1px;">Profile:</label>
         <select id="userSelect" class="form-select bg-dark text-white border-secondary shadow-sm" style="width: 160px;" onchange="updateDashboard()">
             <option value="0">Gus</option>
             <option value="1">Joules</option>
             <option value="2">🏠 Household</option>
-    </select>
+        </select>
     </div>
 </div>
 
 <div class="row mb-4">
     <div class="col-md-3">
-        <div class="card bg-dark border-info p-3 shadow-sm">
+        <div class="card border-info p-3 shadow-sm h-100">
             <h6 class="text-info small text-uppercase fw-bold" style="opacity: 0.8;">Current Net Worth</h6>
             <h3 id="dash-net-worth" class="text-white fw-bold mb-0">€0.00</h3>
             <small class="text-light-gray">Total Equity Assets</small>
         </div>
     </div>
     <div class="col-md-3">
-        <div class="card bg-dark border-secondary p-3 shadow-sm">
+        <div class="card border-secondary p-3 shadow-sm h-100">
             <h6 class="text-light-gray small text-uppercase fw-bold">Monthly Net Income</h6>
             <h3 id="dash-income" class="text-success fw-bold mb-0">€0.00</h3>
             <small class="text-light-gray">Inbound Flow</small>
         </div>
     </div>
     <div class="col-md-3">
-        <div class="card bg-dark border-secondary p-3 shadow-sm">
+        <div class="card border-secondary p-3 shadow-sm h-100">
             <h6 class="text-light-gray small text-uppercase fw-bold">Monthly Spending</h6>
             <h2 id="dash-spending" class="text-warning fw-bold mb-0">€0.00</h2>
             <small class="text-light-gray">Total Burn Rate</small>
         </div>
     </div>
     <div class="col-md-3">
-        <div class="card bg-dark border-secondary p-3 shadow-sm">
+        <div class="card border-secondary p-3 shadow-sm h-100">
             <h6 class="text-light-gray small text-uppercase fw-bold">Savings Rate</h6>
             <h3 id="dash-savings" class="text-white fw-bold mb-0">€0.00</h3>
             <div class="progress mt-2" style="height: 6px; background-color: #000;">
@@ -56,7 +57,7 @@
 
 <div class="row">
     <div class="col-md-8">
-        <div class="card bg-dark border-secondary p-4 shadow-lg">
+        <div class="card border-secondary p-4 shadow-lg">
             <h6 class="text-white small fw-bold text-uppercase mb-3" style="letter-spacing: 1px;">
                 <span class="text-info">Wealth Trend</span> (Wealth vs. Income)
             </h6>
@@ -65,22 +66,91 @@
             </div>
         </div>
     </div>
+
     <div class="col-md-4">
-        <div class="card bg-dark border-secondary p-4 shadow-lg">
-            <h6 class="text-white small fw-bold text-uppercase mb-3" style="letter-spacing: 1px;">
-                <span class="text-info">Spending Breakdown</span>
-            </h6>
-            <div style="height: 350px;">
+        <div class="card border-info p-4 shadow-lg">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="text-white small fw-bold text-uppercase mb-0" style="letter-spacing: 1px;">
+                    <i class="bi bi-pie-chart-fill text-info me-2"></i>Allocation
+                </h6>
+                <select id="periodSelect" class="form-select form-select-sm bg-black text-info border-secondary shadow-sm" style="width: 130px;" onchange="updateSpendingWheel()">
+                    <option value="current">Current Month</option>
+                    <option value="last_month">Last Month</option>
+                    <option value="last_3">Last 3 Months</option>
+                    <option value="lifetime">Lifetime</option>
+                </select>
+            </div>
+            
+            <div style="height: 350px; position: relative;">
                 <canvas id="dashSpendingChart"></canvas>
+                <div id="chart-center-label" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                    </div>
+            </div>
+            <div class="text-center mt-2">
+                <small class="text-light-gray" id="view-indicator">Click a slice to drill down</small>
             </div>
         </div>
     </div>
 </div>
 
+
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
 <script>
-// Logic remains the same as your previous script.
-// Note: Ensure your Chart.js scales use '#aaa' or '#fff' for ticks instead of '#888'.
+let nwChart, spendingChart;
+
+/**
+ * Main dashboard refresh. Triggered on Profile change.
+ */
+async function updateDashboard() {
+    const userId = document.getElementById('userSelect').value;
+
+    try {
+        // 1. Update KPI Summary (Always current context)
+        const res = await fetch(`/api/dashboard/summary?user_id=${userId}&t=${Date.now()}`);
+        const data = await res.json();
+
+        document.getElementById('dash-net-worth').innerText = `€${data.net_worth.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        document.getElementById('dash-income').innerText = `€${data.income.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        document.getElementById('dash-spending').innerText = `€${data.spent.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        
+        const savings = data.savings;
+        const savingsEl = document.getElementById('dash-savings');
+        savingsEl.innerText = `€${savings.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
+        savingsEl.className = savings >= 0 ? 'fw-bold mb-0 text-success' : 'fw-bold mb-0 text-danger';
+
+        const savingsPct = data.income > 0 ? (savings / data.income) * 100 : 0;
+        document.getElementById('savings-bar').style.width = `${Math.min(Math.max(savingsPct, 0), 100)}%`;
+
+        // 2. Load Wealth History
+        const hRes = await fetch(`/api/finance/history?user_id=${userId}`);
+        const hData = await hRes.json();
+        renderNetWorthChart(hData);
+
+        // 3. Trigger the Spending Wheel Refresh
+        updateSpendingWheel();
+
+    } catch (err) {
+        console.error("Dashboard Sync Failed:", err);
+    }
+}
+
+/**
+ * Isolated Wheel refresh. Triggered on Period change OR Profile change.
+ */
+async function updateSpendingWheel() {
+    const userId = document.getElementById('userSelect').value;
+    const period = document.getElementById('periodSelect').value;
+
+    try {
+        const sRes = await fetch(`/api/spending/parent-categories?user_id=${userId}&period=${period}&t=${Date.now()}`);
+        const sData = await sRes.json();
+        renderSpendingChart(sData, false); // Always return to Global view on refresh
+    } catch (err) {
+        console.error("Wheel Refresh Failed:", err);
+    }
+}
 
 function renderNetWorthChart(data) {
     const ctx = document.getElementById('dashNetWorthChart').getContext('2d');
@@ -100,7 +170,7 @@ function renderNetWorthChart(data) {
             scales: {
                 y: { position: 'left', grid: { color: '#333' }, ticks: { color: '#0dcaf0' } },
                 y1: { position: 'right', grid: { display: false }, ticks: { color: '#2ecc71' } },
-                x: { ticks: { color: '#cccccc' } } // Brightened X-axis labels
+                x: { ticks: { color: '#cccccc' } }
             },
             plugins: { 
                 legend: { labels: { color: '#ffffff', font: { weight: 'bold' } } } 
@@ -108,53 +178,25 @@ function renderNetWorthChart(data) {
         }
     });
 }
-// (Remaining JS same as before)
-</script>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script>
-let nwChart, spendingChart;
-
-async function updateDashboard() {
-    const userId = document.getElementById('userSelect').value;
-
-    try {
-        // 1. Fetch KPI Summary Data
-        const res = await fetch(`/api/dashboard/summary?user_id=${userId}`);
-        const data = await res.json();
-
-        document.getElementById('dash-net-worth').innerText = `€${data.net_worth.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
-        document.getElementById('dash-income').innerText = `€${data.income.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
-        document.getElementById('dash-spending').innerText = `€${data.spent.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
-        
-        const savings = data.savings;
-        const savingsEl = document.getElementById('dash-savings');
-        savingsEl.innerText = `€${savings.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
-        savingsEl.className = savings >= 0 ? 'fw-bold mb-0 text-success' : 'fw-bold mb-0 text-danger';
-
-        const savingsPct = data.income > 0 ? (savings / data.income) * 100 : 0;
-        document.getElementById('savings-bar').style.width = `${Math.min(Math.max(savingsPct, 0), 100)}%`;
-
-        // 2. Load the Wealth Trend Chart
-        const hRes = await fetch(`/api/finance/history?user_id=${userId}`);
-        const hData = await hRes.json();
-        renderNetWorthChart(hData);
-
-        // 3. Load the Spending Pie Chart
-        const sRes = await fetch(`/api/spending/category?user_id=${userId}`);
-        const sData = await sRes.json();
-        renderSpendingChart(sData);
-
-    } catch (err) {
-        console.error("Dashboard Sync Failed:", err);
-    }
-}
-
-
-
-function renderSpendingChart(data) {
-    const ctx = document.getElementById('dashSpendingChart').getContext('2d');
+/**
+ * Renders the doughnut chart for Global (Parent) or Detailed (Sub) views.
+ */
+function renderSpendingChart(data, isSubCategory = false, parentName = '') {
+    const canvas = document.getElementById('dashSpendingChart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
     if (spendingChart) spendingChart.destroy();
+
+    // Update the center label based on the view
+    const totalSum = data.values.reduce((a, b) => a + b, 0);
+    const labelText = isSubCategory ? parentName : 'Total Spend';
+    
+    document.getElementById('chart-center-label').innerHTML = `
+        <span class="text-light-gray small text-uppercase d-block" style="font-size: 0.7rem;">${labelText}</span>
+        <span class="text-white fw-bold h4">€${totalSum.toLocaleString('en-IE', {maximumFractionDigits: 0})}</span>
+    `;
 
     spendingChart = new Chart(ctx, {
         type: 'doughnut',
@@ -162,21 +204,82 @@ function renderSpendingChart(data) {
             labels: data.labels,
             datasets: [{
                 data: data.values,
-                backgroundColor: ['#0dcaf0', '#2ecc71', '#ffc107', '#fd7e14', '#6610f2', '#e83e8c'],
-                borderWidth: 0
+                backgroundColor: [
+                    '#0dcaf0', '#2ecc71', '#ffc107', '#fd7e14', 
+                    '#6610f2', '#e83e8c', '#20c997', '#f8f9fa'
+                ],
+                hoverOffset: 15,
+                borderWidth: 2,
+                borderColor: '#1a1a1a'
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'bottom', labels: { color: '#fff', padding: 20 } }
+            onClick: (evt, item) => {
+                // Only drill down if we are currently looking at the Parent view
+                if (item.length > 0 && !isSubCategory) {
+                    const index = item[0].index;
+                    const selectedParent = spendingChart.data.labels[index];
+                    loadSubCategoryBreakdown(selectedParent);
+                } else if (isSubCategory) {
+                    // If already in sub-view, click to go back to Global view
+                    updateDashboard(); 
+                }
             },
-            cutout: '70%'
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { 
+                        color: '#ffffff', 
+                        font: { size: 11, weight: 'bold' },
+                        padding: 15 
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (item) => ` ${item.label}: €${item.raw.toFixed(2)}`
+                    }
+                }
+            },
+            cutout: '75%'
         }
     });
 }
 
+/**
+ * Step 2: Function to fetch and render the smaller breakdown wheel
+ * for a specific parent class (e.g., Utilities breakdown into Heat, Electricity)
+ */
+async function loadSubCategoryBreakdown(parentName) {
+    const userId = document.getElementById('userSelect').value;
+    try {
+        const res = await fetch(`/api/spending/sub-categories?user_id=${userId}&parent_name=${parentName}`);
+        const data = await res.json();
+        
+        // Re-render using the same chart function but with sub-category flag
+        renderSpendingChart(data, true, parentName);
+    } catch (err) {
+        console.error("Failed to load breakdown:", err);
+    }
+}
+
+/**
+ * Fetches breakdown for a parent (e.g. "Utilities" -> "Electricity", "Gas")
+ */
+async function loadSubCategoryBreakdown(parentName) {
+    const userId = document.getElementById('userSelect').value;
+    const period = document.getElementById('periodSelect').value;
+    try {
+        const res = await fetch(`/api/spending/sub-categories?user_id=${userId}&parent_name=${parentName}&period=${period}&t=${Date.now()}`);
+        const data = await res.json();
+        renderSpendingChart(data, true, parentName);
+    } catch (err) {
+        console.error("Sub-category fetch failed:", err);
+    }
+}
+
+// Initial load
 document.addEventListener('DOMContentLoaded', updateDashboard);
 </script>
 {% endblock %}
