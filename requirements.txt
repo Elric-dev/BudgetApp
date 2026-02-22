@@ -1,4 +1,11 @@
-pandas 
-mysql-connector-python 
+flask
+mysql-connector-python
 python-dotenv
-glob
+pandas
+gunicorn
+flask-login
+werkzeug
+cryptography
+flask-talisman
+flask-wtf
+glob2

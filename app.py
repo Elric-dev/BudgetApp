@@ -1,27 +1,56 @@
-from flask import Flask, jsonify, render_template, request
-import mysql.connector
 import os
 import hashlib
 import time
-from dotenv import load_dotenv
-from werkzeug.utils import secure_filename
-from datetime import datetime
-from importer import generate_transaction_hash
 import traceback
-from importer import run_import 
+import logging
+from datetime import datetime
+from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+import mysql.connector
+
+from config import Config
+from importer import run_import, generate_transaction_hash
+
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+app.config.from_object(Config)
+
+# --- LOGIN MANAGER ---
+login_manager = LoginManager()
+login_manager.login_view = 'login'
+login_manager.init_app(app)
+
+class User(UserMixin):
+    def __init__(self, id, name):
+        self.id = id
+        self.name = name
+
+@login_manager.user_loader
+def load_user(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT user_id, name FROM users WHERE user_id = %s", (user_id,))
+    user_data = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if user_data:
+        return User(user_data['user_id'], user_data['name'])
+    return None
 
 # --- DATABASE CONNECTION ---
 def get_db_connection():
     return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASS'),
-        database=os.getenv('DB_NAME')
+        host=app.config['DB_HOST'],
+        user=app.config['DB_USER'],
+        password=app.config['DB_PASS'],
+        database=app.config['DB_NAME']
     )
 
 # --- HELPER UTILITIES ---
@@ -34,19 +63,69 @@ def get_date_filter(period):
     elif period == 'lifetime':
         return "", []
     else:
-        # Default: Current Month (Feb 2026)
+        # Default: Current Month
         return "AND MONTH(t.date) = MONTH(CURRENT_DATE()) AND YEAR(t.date) = YEAR(CURRENT_DATE())", []
 
 # ==========================================
-# 1. DASHBOARD PAGE & APIs
+# AUTHENTICATION ROUTES
+# ==========================================
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM users WHERE name = %s", (username,))
+        user_data = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        # Simple auth: check if user exists and password matches
+        # Note: In a real system, you'd use check_password_hash
+        # Since this is for personal use, we might want to set up the first user manually
+        if user_data and user_data['password_hash']:
+            if check_password_hash(user_data['password_hash'], password):
+                user_obj = User(user_data['user_id'], user_data['name'])
+                login_user(user_obj)
+                return redirect(url_for('index'))
+        elif user_data and not user_data['password_hash']:
+            # IF no password set yet, allow first login to SET password
+            # SECURE THIS IN REAL PROD: This is a "first run" convenience
+            pw_hash = generate_password_hash(password)
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET password_hash = %s WHERE user_id = %s", (pw_hash, user_data['user_id']))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            user_obj = User(user_data['user_id'], user_data['name'])
+            login_user(user_obj)
+            return redirect(url_for('index'))
+            
+        flash('Invalid username or password')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
+
+# ==========================================
+# DASHBOARD PAGE & APIs
 # ==========================================
 
 @app.route('/')
+@login_required
 def index():
     """Main Executive Dashboard View"""
     return render_template('index.html')
 
 @app.route('/api/dashboard/summary')
+@login_required
 def dashboard_summary():
     """Top-level KPIs for Net Worth, Income, Spending, and Savings"""
     user_id = int(request.args.get('user_id', 0))
@@ -56,19 +135,37 @@ def dashboard_summary():
     try:
         if user_id == 2: # Household
             cursor.execute("SELECT SUM(current_value) as nw FROM assets")
-            nw = cursor.fetchone()['nw'] or 0
+            res = cursor.fetchone()
+            nw = res['nw'] if res and res['nw'] else 0
+            
             cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams")
-            inc = cursor.fetchone()['inc'] or 0
-            cursor.execute("SELECT SUM(Gus_share + Joules_share) as spent FROM transactions WHERE MONTH(date) = MONTH(CURDATE())")
-            spent = cursor.fetchone()['spent'] or 0
+            res = cursor.fetchone()
+            inc = res['inc'] if res and res['inc'] else 0
+            
+            cursor.execute("""
+                SELECT SUM(Gus_share + Joules_share) as spent 
+                FROM transactions 
+                WHERE MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
+            """)
+            res = cursor.fetchone()
+            spent = res['spent'] if res and res['spent'] else 0
         else: # Gus (0) or Joules (1)
             cursor.execute("SELECT SUM(current_value) as nw FROM assets WHERE user_id = %s", (user_id,))
-            nw = cursor.fetchone()['nw'] or 0
+            res = cursor.fetchone()
+            nw = res['nw'] if res and res['nw'] else 0
+            
             cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams WHERE user_id = %s", (user_id,))
-            inc = cursor.fetchone()['inc'] or 0
+            res = cursor.fetchone()
+            inc = res['inc'] if res and res['inc'] else 0
+            
             share_col = "Gus_share" if user_id == 0 else "Joules_share"
-            cursor.execute(f"SELECT SUM({share_col}) as spent FROM transactions WHERE MONTH(date) = MONTH(CURDATE())")
-            spent = cursor.fetchone()['spent'] or 0
+            cursor.execute(f"""
+                SELECT SUM({share_col}) as spent 
+                FROM transactions 
+                WHERE MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
+            """)
+            res = cursor.fetchone()
+            spent = res['spent'] if res and res['spent'] else 0
 
         return jsonify({
             "net_worth": float(nw), "income": float(inc),
@@ -79,6 +176,7 @@ def dashboard_summary():
         conn.close()
 
 @app.route('/api/spending/parent-categories', methods=['GET'])
+@login_required
 def get_parent_spending():
     user_id = int(request.args.get('user_id', 0))
     period = request.args.get('period', 'current')
@@ -87,7 +185,6 @@ def get_parent_spending():
     
     date_clause, _ = get_date_filter(period)
     
-    # REVISED LOGIC: Filter by where the person actually has a financial share
     if user_id == 2: # Household
         share_calc = "SUM(t.Gus_share + t.Joules_share)"
         user_filter = "(t.Gus_share > 0 OR t.Joules_share > 0)"
@@ -115,6 +212,7 @@ def get_parent_spending():
         conn.close()
 
 @app.route('/api/spending/sub-categories', methods=['GET'])
+@login_required
 def get_sub_spending():
     user_id = int(request.args.get('user_id', 0))
     parent_name = request.args.get('parent_name')
@@ -124,10 +222,9 @@ def get_sub_spending():
     
     date_clause, _ = get_date_filter(period)
     
-    # DYNAMIC COLUMN SELECTION
     if user_id == 2:
         share_calc = "SUM(t.Gus_share + t.Joules_share)"
-        user_filter = "t.user_id IN (0, 1)"
+        user_filter = "t.user_id IN (0, 1, 2)" # Adjusted for safety
     elif user_id == 0:
         share_calc = "SUM(t.Gus_share)"
         user_filter = "t.user_id = 0"
@@ -151,14 +248,16 @@ def get_sub_spending():
         conn.close()
 
 # ==========================================
-# 2. TRANSACTIONS & CLEANUP PAGES
+# TRANSACTIONS & CLEANUP PAGES
 # ==========================================
 
 @app.route('/transactions')
+@login_required
 def transactions_page():
     return render_template('transactions.html')
 
 @app.route('/api/transactions')
+@login_required
 def get_transactions_paginated():
     page = int(request.args.get('page', 1))
     offset = (page - 1) * 20
@@ -180,6 +279,7 @@ def get_transactions_paginated():
     return jsonify({"transactions": rows, "total": total_count, "page": page})
 
 @app.route('/api/transactions/update', methods=['POST'])
+@login_required
 def update_transaction():
     data = request.json
     conn = get_db_connection()
@@ -193,15 +293,38 @@ def update_transaction():
                                float(data['Gus_share']), float(data['Joules_share']), int(data['id'])))
         conn.commit()
         return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error updating transaction: {e}")
+        return jsonify({"error": "Failed to update transaction"}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/transactions/delete', methods=['POST'])
+@login_required
+def delete_transaction():
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = "DELETE FROM transactions WHERE id = %s"
+        cursor.execute(query, (int(data['id']),))
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error deleting transaction: {e}")
+        return jsonify({"error": "Failed to delete transaction"}), 500
     finally:
         cursor.close()
         conn.close()
 
 @app.route('/cleanup')
+@login_required
 def cleanup_page():
     return render_template('cleanup.html')
 
 @app.route('/api/uncategorized')
+@login_required
 def get_uncategorized():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
@@ -219,10 +342,11 @@ def get_uncategorized():
     return jsonify(results)
 
 # ==========================================
-# 3. INPUT (MANUAL & CSV) PAGES
+# INPUT (MANUAL & CSV) PAGES
 # ==========================================
 
 @app.route('/input')
+@login_required
 def input_page():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
@@ -233,6 +357,7 @@ def input_page():
     return render_template('input.html', categories=cats)
 
 @app.route('/api/expense/manual', methods=['POST'])
+@login_required
 def save_manual_expense():
     data = request.json
     conn = get_db_connection()
@@ -253,50 +378,48 @@ def save_manual_expense():
                                0, g_share, j_share, 1 if (g_share > 0 and j_share > 0) else 0, t_hash))
         conn.commit()
         return jsonify({"status": "success"}), 201
+    except Exception as e:
+        logger.error(f"Error saving manual expense: {e}")
+        return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
         conn.close()
 
-# At the top of app.py, add your importer function
-
-
 @app.route('/api/upload_csv', methods=['POST'])
+@login_required
 def upload_csv():
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
     
     file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+        
     filename = secure_filename(file.filename)
-    filepath = os.path.join('/tmp', filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
     
     try:
-        # Check if run_import actually exists and is imported
-        from importer import run_import
-        
-        # Log the attempt in the terminal
-        print(f"--- Starting Import for: {filepath} ---")
-        
+        logger.info(f"Starting Import for: {filepath}")
         run_import(filepath)
-        
-        print("--- Import Successful ---")
+        logger.info("Import Successful")
         return jsonify({"status": "Database updated successfully."})
-        
     except Exception as e:
-        # This prints the EXACT error to your terminal (VS Code/Terminal)
-        print("!!! IMPORT CRASHED !!!")
-        traceback.print_exc() 
+        logger.error(f"IMPORT CRASHED: {e}")
+        logger.error(traceback.format_exc()) 
         return jsonify({"error": "Check server logs for database/importer crash."}), 500
 
 # ==========================================
-# 4. BUDGET & INCOME PAGES
+# BUDGET & INCOME PAGES
 # ==========================================
 
 @app.route('/budget')
+@login_required
 def budget_page():
     return render_template('budget.html')
 
 @app.route('/api/budget/list')
+@login_required
 def list_budget_categories():
     user_id = request.args.get('user_id', 0)
     conn = get_db_connection()
@@ -314,8 +437,10 @@ def list_budget_categories():
     return jsonify(rows)
 
 @app.route('/api/budget/save_items', methods=['POST'])
+@login_required
 def save_budget_items():
-    data, conn = request.json, get_db_connection()
+    data = request.json
+    conn = get_db_connection()
     cursor = conn.cursor()
     try:
         for item in data.get('items', []):
@@ -326,39 +451,50 @@ def save_budget_items():
             cursor.execute(query, (data['user_id'], item['name'], item['amount']))
         conn.commit()
         return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error saving budget items: {e}")
+        return jsonify({"error": "Failed to save budget"}), 500
     finally:
         cursor.close()
         conn.close()
 
 @app.route('/api/income', methods=['GET', 'POST'])
+@login_required
 def handle_income():
     user_id = request.args.get('user_id', 0)
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     if request.method == 'POST':
         data = request.json
-        query = """
-            INSERT INTO income_streams (user_id, source_name, monthly_gross, tax_rate) VALUES (%s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE monthly_gross = VALUES(monthly_gross), tax_rate = VALUES(tax_rate)
-        """
-        cursor.execute(query, (user_id, data['source'], data['gross'], data['tax']))
-        conn.commit()
-        return jsonify({"status": "success"})
+        try:
+            query = """
+                INSERT INTO income_streams (user_id, source_name, monthly_gross, tax_rate) VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE monthly_gross = VALUES(monthly_gross), tax_rate = VALUES(tax_rate)
+            """
+            cursor.execute(query, (user_id, data['source'], data['gross'], data['tax']))
+            conn.commit()
+            return jsonify({"status": "success"})
+        except Exception as e:
+            logger.error(f"Error saving income: {e}")
+            return jsonify({"error": "Failed to save income"}), 500
+        finally:
+            cursor.close()
+            conn.close()
+            
     cursor.execute("SELECT * FROM income_streams WHERE user_id = %s", (user_id,))
     streams = cursor.fetchall()
     cursor.close()
     conn.close()
     return jsonify(streams)
 
-## Planned vs Actual Budget
 @app.route('/api/budget/progress')
+@login_required
 def budget_progress():
     user_id = int(request.args.get('user_id', 0))
-    parent_name = request.args.get('parent_name') # New parameter for drill-down
+    parent_name = request.args.get('parent_name')
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     
-    # Determine the share column based on user_id
     if user_id == 2:
         share_calc = "t.Gus_share + t.Joules_share"
         user_filter = "(t.Gus_share > 0 OR t.Joules_share > 0)"
@@ -368,7 +504,6 @@ def budget_progress():
 
     try:
         if parent_name:
-            # DRILL-DOWN: Show individual categories within a parent
             query = f"""
                 SELECT 
                     c.name as label,
@@ -384,7 +519,6 @@ def budget_progress():
             """
             cursor.execute(query, (user_id, parent_name))
         else:
-            # MAIN VIEW: Aggregate everything by Parent Name
             query = f"""
                 SELECT 
                     COALESCE(c.parent_name, 'Other') as label,
@@ -409,15 +543,13 @@ def budget_progress():
         cursor.close()
         conn.close()
 
-
-## Burn rate calculation
 @app.route('/api/finance/burn-rate')
+@login_required
 def calculate_burn_rate():
     user_id = int(request.args.get('user_id', 0))
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     
-    # Share logic based on profile
     if user_id == 2:
         share_calc = "SUM(t.Gus_share + t.Joules_share)"
         user_filter = "(t.Gus_share > 0 OR t.Joules_share > 0)"
@@ -436,8 +568,6 @@ def calculate_burn_rate():
     try:
         for key, interval in periods.items():
             date_condition = f"AND t.date >= DATE_SUB(CURDATE(), {interval})" if interval else ""
-            
-            # Query for total spend in period
             query = f"""
                 SELECT {share_calc} as total, 
                        TIMESTAMPDIFF(MONTH, MIN(t.date), CURDATE()) + 1 as months
@@ -446,32 +576,29 @@ def calculate_burn_rate():
             """
             cursor.execute(query)
             row = cursor.fetchone()
-            
             total_spend = float(row['total'] or 0)
-            
-            # For 30d, months will be 1. For others, we calculate the actual avg.
             num_months = 1 if key == "30d" else (row['months'] or 1)
             avg_burn = total_spend / num_months
-            
             results[key] = {
                 "actual": avg_burn,
-                "cushioned": avg_burn * 1.15 # The 15% cushion
+                "cushioned": avg_burn * 1.15
             }
-            
         return jsonify(results)
     finally:
         cursor.close()
         conn.close()
 
 # ==========================================
-# 5. NET WORTH & ASSETS PAGES
+# NET WORTH & ASSETS PAGES
 # ==========================================
 
 @app.route('/networth')
+@login_required
 def networth_page():
     return render_template('networth.html')
 
 @app.route('/api/networth')
+@login_required
 def get_networth():
     user_id = request.args.get('user_id', 0)
     conn = get_db_connection()
@@ -483,8 +610,10 @@ def get_networth():
     return jsonify(assets)
 
 @app.route('/api/networth/update', methods=['POST'])
+@login_required
 def update_asset():
-    data, conn = request.json, get_db_connection()
+    data = request.json
+    conn = get_db_connection()
     cursor = conn.cursor()
     try:
         if data.get('id'):
@@ -494,11 +623,15 @@ def update_asset():
                            (data['user_id'], data['name'], data['type'], data['value']))
         conn.commit()
         return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error updating asset: {e}")
+        return jsonify({"error": "Failed to update asset"}), 500
     finally:
         cursor.close()
         conn.close()
 
 @app.route('/api/finance/history')
+@login_required
 def finance_history():
     user_id = int(request.args.get('user_id', 0))
     conn = get_db_connection()
@@ -523,16 +656,17 @@ def finance_history():
     cursor.close()
     conn.close()
     return jsonify({
-        "dates": [r['snapshot_date'].strftime('%d %b') for r in rows],
+        "dates": [r['snapshot_date'].strftime('%%d %%b') for r in rows],
         "nw_values": [float(r['nw_total'] or 0) for r in rows],
         "inc_values": [float(r['inc_total'] or 0) for r in rows]
     })
 
 # ==========================================
-# 6. SHARED CORE APIS (Categories)
+# SHARED CORE APIS (Categories)
 # ==========================================
 
 @app.route('/api/categories')
+@login_required
 def get_categories():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
@@ -543,4 +677,5 @@ def get_categories():
     return jsonify(results)
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    # For production, use gunicorn
+    app.run(debug=app.config['DEBUG'], host='0.0.0.0', port=5001)

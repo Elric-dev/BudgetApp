@@ -8,6 +8,8 @@ import glob
 from datetime import datetime
 from dotenv import load_dotenv
 
+from config import Config
+
 # 1. SETUP LOGGING
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -16,16 +18,14 @@ log_format = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 c_handler.setFormatter(log_format)
 logger.addHandler(c_handler)
 
-load_dotenv()
-
 def get_db_connection():
     """Establishes connection to MySQL/MariaDB."""
     try:
         return mysql.connector.connect(
-            host=os.getenv('DB_HOST'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASS'),
-            database=os.getenv('DB_NAME')
+            host=Config.DB_HOST,
+            user=Config.DB_USER,
+            password=Config.DB_PASS,
+            database=Config.DB_NAME
         )
     except mysql.connector.Error as err:
         logger.error(f"MySQL Connection Error: {err}")
