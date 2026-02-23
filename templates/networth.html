@@ -46,7 +46,7 @@
     </div>
 </div>
 
-<div class="card bg-dark border-secondary shadow-lg">
+<div class="card bg-dark border-secondary shadow-lg mb-4">
     <div class="card-header border-secondary d-flex justify-content-between align-items-center">
         <span class="text-info fw-bold text-uppercase small">Asset Breakdown</span>
         <button class="btn btn-sm btn-info fw-bold" onclick="showAddAssetModal()">+ Add Asset</button>
@@ -63,6 +63,52 @@
             </thead>
             <tbody id="asset-rows"></tbody>
         </table>
+    </div>
+</div>
+
+<div class="card bg-dark border-success shadow-lg mb-5">
+    <div class="card-header border-success d-flex justify-content-between align-items-center">
+        <span class="text-success fw-bold text-uppercase small">Income Streams</span>
+        <button class="btn btn-sm btn-success fw-bold" onclick="showAddIncomeModal()">+ Add Income</button>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0 align-middle">
+            <thead class="table-success text-dark">
+                <tr>
+                    <th class="ps-4">Source Name</th>
+                    <th>Monthly Gross</th>
+                    <th>Tax Rate (%)</th>
+                    <th class="text-end pe-4">Manage</th>
+                </tr>
+            </thead>
+            <tbody id="income-rows"></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal fade" id="incomeModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white border-success">
+            <div class="modal-header border-success">
+                <h5 class="modal-title text-success">Manage Income Stream</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="small text-light">Source (e.g. Salary, Side Project)</label>
+                    <input type="text" id="incomeSource" class="form-control bg-black text-white border-secondary">
+                </div>
+                <div class="mb-3">
+                    <label class="small text-light">Monthly Gross Amount (€)</label>
+                    <input type="number" id="incomeGross" class="form-control bg-black text-white border-secondary">
+                </div>
+                <div class="mb-3">
+                    <label class="small text-light">Tax Rate (%)</label>
+                    <input type="number" id="incomeTax" class="form-control bg-black text-white border-secondary" value="0">
+                </div>
+                <button class="btn btn-success w-100 fw-bold" onclick="saveIncome()">Save Income Stream</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -114,42 +160,136 @@ async function loadNetWorth() {
     const liqTypes = ['Bank', 'Brokerage', 'Stock', 'Liquid', 'Crypto'];
 
     document.getElementById('asset-rows').innerHTML = assets.map(a => {
-    const val = parseFloat(a.current_value);
-    total += val;
-    if(liqTypes.includes(a.asset_type)) liq += val; else fix += val;
-    
-    return `
-        <tr class="border-bottom border-secondary">
-            <td class="ps-4">
-                <input type="text" class="form-control form-control-sm bg-transparent text-white border-0 fw-bold p-0" 
-                       value="${a.asset_name}" onchange="updateName(${a.id}, this.value)">
-                <small class="text-muted">${a.asset_type}</small>
-            </td>
-            <td>
-                <div class="input-group input-group-sm" style="width: 150px;">
-                    <span class="input-group-text bg-black border-secondary text-success">€</span>
-                    <input type="number" class="form-control bg-black text-info border-secondary" 
-                           value="${val}" onchange="updateValue(${a.id}, this.value)">
-                </div>
-            </td>
-            <td class="text-white">€${val.toLocaleString()}</td>
-            <td class="text-end pe-4">
-                <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteAsset(${a.id})">
-                    <i class="bi bi-trash3"></i>
-                </button>
-            </td>
-        </tr>
-    `;
-}).join('');
+        const val = parseFloat(a.current_value);
+        total += val;
+        if(liqTypes.includes(a.asset_type)) liq += val; else fix += val;
+        
+        return `
+            <tr class="border-bottom border-secondary">
+                <td class="ps-4">
+                    <input type="text" class="form-control form-control-sm bg-transparent text-white border-0 fw-bold p-0" 
+                           value="${a.asset_name}" onchange="updateName(${a.id}, this.value)">
+                    <small class="text-muted">${a.asset_type}</small>
+                </td>
+                <td>
+                    <div class="input-group input-group-sm" style="width: 150px;">
+                        <span class="input-group-text bg-black border-secondary text-success">€</span>
+                        <input type="number" class="form-control bg-black text-info border-secondary" 
+                               value="${val}" onchange="updateValue(${a.id}, this.value)">
+                    </div>
+                </td>
+                <td class="text-white">€${val.toLocaleString()}</td>
+                <td class="text-end pe-4">
+                    <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteAsset(${a.id})">
+                        <i class="bi bi-trash3"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
 
     document.getElementById('total-net-worth').innerText = `€${total.toLocaleString()}`;
     document.getElementById('liquid-assets').innerText = `€${liq.toLocaleString()}`;
     document.getElementById('fixed-assets').innerText = `€${fix.toLocaleString()}`;
 
-    // 2. Fetch History for Chart
+    // 2. Fetch Income
+    loadIncome();
+
+    // 3. Fetch History for Chart
     const hRes = await fetch(`/api/finance/history?user_id=${userId}`);
     const hData = await hRes.json();
     if(hData.dates.length > 0) renderChart(hData);
+}
+
+async function loadIncome() {
+    const userId = document.getElementById('userSelect').value;
+    const res = await fetch(`/api/income?user_id=${userId}`);
+    const streams = await res.json();
+    
+    document.getElementById('income-rows').innerHTML = streams.map(s => {
+        return `
+            <tr class="border-bottom border-secondary">
+                <td class="ps-4">
+                    <input type="text" class="form-control form-control-sm bg-transparent text-white border-0 fw-bold p-0" 
+                           value="${s.source_name}" onchange="updateIncome(${s.id}, 'source', this.value)">
+                </td>
+                <td>
+                    <div class="input-group input-group-sm" style="width: 150px;">
+                        <span class="input-group-text bg-black border-secondary text-success">€</span>
+                        <input type="number" class="form-control bg-black text-info border-secondary" 
+                               value="${s.monthly_gross}" onchange="updateIncome(${s.id}, 'gross', this.value)">
+                    </div>
+                </td>
+                <td>
+                    <div class="input-group input-group-sm" style="width: 100px;">
+                        <input type="number" class="form-control bg-black text-info border-secondary text-center" 
+                               value="${s.tax_rate}" onchange="updateIncome(${s.id}, 'tax', this.value)">
+                        <span class="input-group-text bg-black border-secondary text-muted">%</span>
+                    </div>
+                </td>
+                <td class="text-end pe-4">
+                    <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteIncome(${s.id})">
+                        <i class="bi bi-trash3"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function updateIncome(id, field, value) {
+    const userId = document.getElementById('userSelect').value;
+    const res = await fetch(`/api/income?user_id=${userId}`);
+    const streams = await res.json();
+    const s = streams.find(item => item.id === id);
+    
+    const payload = {
+        id: id,
+        source: field === 'source' ? value : s.source_name,
+        gross: field === 'gross' ? value : s.monthly_gross,
+        tax: field === 'tax' ? value : s.tax_rate
+    };
+
+    await fetch('/api/income/update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    loadIncome();
+}
+
+async function deleteIncome(id) {
+    if (!confirm("Remove this income stream?")) return;
+    await fetch('/api/income/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: id})
+    });
+    loadIncome();
+}
+
+function showAddIncomeModal() {
+    new bootstrap.Modal(document.getElementById('incomeModal')).show();
+}
+
+async function saveIncome() {
+    const payload = {
+        user_id: document.getElementById('userSelect').value,
+        source: document.getElementById('incomeSource').value,
+        gross: document.getElementById('incomeGross').value,
+        tax: document.getElementById('incomeTax').value
+    };
+    
+    const res = await fetch('/api/income', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    });
+    
+    if (res.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('incomeModal')).hide();
+        loadIncome();
+    }
 }
 
 function renderChart(data) {

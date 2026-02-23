@@ -135,7 +135,16 @@
                             </div>
                         </div>
 
-                        <button type="button" onclick="saveExpense()" class="btn btn-primary w-100 fw-bold py-3">
+                        <div class="mb-4 d-flex align-items-center">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="pushToSplitwise">
+                                <label class="form-check-label text-info fw-bold ms-2" for="pushToSplitwise">
+                                    <i class="bi bi-send-plus me-1"></i>ALSO PUSH TO SPLITWISE
+                                </label>
+                            </div>
+                        </div>
+
+                        <button type="button" id="saveBtn" onclick="saveExpense()" class="btn btn-primary w-100 fw-bold py-3">
                             <i class="bi bi-cloud-arrow-up-fill me-2"></i>SAVE TRANSACTION
                         </button>
                     </form>
@@ -154,11 +163,22 @@
                         <h6 class="text-white mt-3">Bulk Data Sync</h6>
                         <p class="text-muted small">Upload your latest Splitwise CSV export. The engine will skip duplicates automatically.</p>
                     </div>
+                    <div id="uploadStatus" class="mb-3 text-center small"></div>
                     <input type="file" id="csvFile" class="form-control bg-dark text-white border-secondary mb-3">
-                    <button type="button" onclick="uploadCSV()" class="btn btn-outline-info fw-bold py-2">
+                    <button type="button" onclick="uploadCSV()" class="btn btn-outline-info fw-bold py-2 mb-4">
                         PROCESS FILE
                     </button>
-                    <div id="uploadStatus" class="mt-3 text-center small"></div>
+                    
+                    <hr class="border-secondary mb-4">
+                    
+                    <div class="text-center mb-3">
+                        <h6 class="text-info fw-bold">Splitwise API Direct Sync</h6>
+                        <p class="text-muted small">Sync directly via the official API using your configured credentials.</p>
+                    </div>
+                    <button type="button" id="apiSyncBtn" onclick="syncSplitwise()" class="btn btn-info fw-bold py-2">
+                        <i class="bi bi-arrow-repeat me-2"></i>START SYNC
+                    </button>
+                    <div id="apiSyncStatus" class="mt-3 text-center small"></div>
                 </div>
             </div>
         </div>
@@ -167,6 +187,34 @@
 
 <script>
 let budgetTargets = {};
+
+// API Sync Function
+async function syncSplitwise() {
+    const btn = document.getElementById('apiSyncBtn');
+    const status = document.getElementById('apiSyncStatus');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>SYNCING...';
+    status.innerHTML = '<span class="text-info">Connecting to Splitwise API...</span>';
+
+    try {
+        const res = await fetch('/api/sync_splitwise', { method: 'POST' });
+        const data = await res.json();
+        
+        if (res.ok) {
+            status.innerHTML = `<span class="text-success fw-bold"><i class="bi bi-check-circle me-1"></i> ${data.status}</span>`;
+            alert("Splitwise API Sync Complete!");
+        } else {
+            status.innerHTML = `<span class="text-danger">Error: ${data.error}</span>`;
+        }
+    } catch (err) {
+        status.innerHTML = `<span class="text-danger">Sync failed. Check connection.</span>`;
+        console.error(err);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat me-2"></i>START SYNC';
+    }
+}
 
 // 1. Initial Load: Fetch Budgets for live calculations
 document.addEventListener('DOMContentLoaded', async () => {
@@ -273,6 +321,9 @@ function calculateImpact() {
 // 5. Manual Submission
 async function saveExpense() {
     const catSelect = document.getElementById('expCat');
+    const pushSwitch = document.getElementById('pushToSplitwise');
+    const saveBtn = document.getElementById('saveBtn');
+    
     const payload = {
         date: document.getElementById('expDate').value,
         description: document.getElementById('expDesc').value,
@@ -283,7 +334,31 @@ async function saveExpense() {
         split_joules: parseFloat(document.getElementById('splitJoules').value)
     };
 
+    if (isNaN(payload.amount)) {
+        alert("Please enter a valid amount.");
+        return;
+    }
+
     try {
+        saveBtn.disabled = true;
+        
+        // --- STEP 1: PUSH TO SPLITWISE (IF SELECTED) ---
+        if (pushSwitch.checked) {
+            const swRes = await fetch('/api/expense/splitwise', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const swData = await swRes.json();
+            if (!swRes.ok) {
+                if (!confirm(`Splitwise Push Failed: ${swData.error}. Save locally anyway?`)) {
+                    saveBtn.disabled = false;
+                    return;
+                }
+            }
+        }
+
+        // --- STEP 2: SAVE LOCALLY ---
         const res = await fetch('/api/expense/manual', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -296,10 +371,13 @@ async function saveExpense() {
             document.getElementById('expDate').valueAsDate = new Date();
             setSplit(50, 50); // Reset split to default
         } else {
-            alert("Error saving transaction.");
+            alert("Error saving transaction locally.");
         }
     } catch (err) {
         console.error("Save Error:", err);
+        alert("A critical error occurred while saving.");
+    } finally {
+        saveBtn.disabled = false;
     }
 }
 </script>

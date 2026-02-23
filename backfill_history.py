@@ -39,9 +39,18 @@ def backfill_history():
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     
+    history_sql = "INSERT INTO net_worth_history (user_id, snapshot_date, total_value) VALUES (%s, %s, %s)"
+    income_hist_sql = "INSERT INTO income_history (user_id, snapshot_date, total_net_income) VALUES (%s, %s, %s)"
+    
     total_inserted = 0
-    for d in months:
+    # Dummy progression for NW: starts at 5000, grows 500/mo
+    nw_baseline = 5000.00
+    monthly_income = 2800.00 # Dummy baseline income for history
+    
+    for idx, d in enumerate(months):
         date_str = d.strftime('%Y-%m-%d')
+        
+        # 1. Backfill Transactions
         for name, info in categories.items():
             desc = f"Historical Baseline - {name}"
             amount = info['amount']
@@ -54,9 +63,16 @@ def backfill_history():
             ))
             if cursor.rowcount > 0:
                 total_inserted += 1
+        
+        # 2. Backfill NW History
+        current_nw = nw_baseline + (idx * 500)
+        cursor.execute(history_sql, (user_id, date_str, current_nw))
+        
+        # 3. Backfill Income History
+        cursor.execute(income_hist_sql, (user_id, date_str, monthly_income))
                 
     conn.commit()
-    print(f"Backfill Complete: Inserted {total_inserted} historical records.")
+    print(f"Backfill Complete: Inserted {total_inserted} transactions and 24 history snapshots.")
     cursor.close()
     conn.close()
 

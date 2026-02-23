@@ -11,6 +11,11 @@ class Config:
     DB_NAME = os.getenv('DB_NAME', 'budget_db')
     UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', '/tmp/budget_uploads')
     DEBUG = os.getenv('DEBUG', 'False') == 'True'
+    
+    # Splitwise Credentials
+    SPLITWISE_CONSUMER_KEY = os.getenv('SPLITWISE_CONSUMER_KEY')
+    SPLITWISE_CONSUMER_SECRET = os.getenv('SPLITWISE_CONSUMER_SECRET')
+    SPLITWISE_API_KEY = os.getenv('SPLITWISE_API_KEY') # API Key / Personal Access Token
 
 # Ensure upload folder exists
 if not os.path.exists(Config.UPLOAD_FOLDER):

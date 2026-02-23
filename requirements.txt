@@ -9,3 +9,4 @@ cryptography
 flask-talisman
 flask-wtf
 glob2
+splitwise

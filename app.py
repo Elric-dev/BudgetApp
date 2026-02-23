@@ -45,13 +45,19 @@ def load_user(user_id):
     return None
 
 # --- DATABASE CONNECTION ---
+from mysql.connector import pooling
+
+db_pool = mysql.connector.pooling.MySQLConnectionPool(
+    pool_name="mypool",
+    pool_size=10,
+    host=app.config['DB_HOST'],
+    user=app.config['DB_USER'],
+    password=app.config['DB_PASS'],
+    database=app.config['DB_NAME']
+)
+
 def get_db_connection():
-    return mysql.connector.connect(
-        host=app.config['DB_HOST'],
-        user=app.config['DB_USER'],
-        password=app.config['DB_PASS'],
-        database=app.config['DB_NAME']
-    )
+    return db_pool.get_connection()
 
 # --- HELPER UTILITIES ---
 def get_date_filter(period):
@@ -329,7 +335,7 @@ def get_uncategorized():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     query = """
-        SELECT t.id, t.date, t.description, t.total_amount, c.name as current_category
+        SELECT t.id, DATE_FORMAT(t.date, '%Y-%m-%d') as date, t.description, t.total_amount, c.name as current_category
         FROM transactions t
         JOIN categories c ON t.category_id = c.id
         WHERE c.name = 'General' OR c.parent_name = 'Uncategorized'
@@ -409,6 +415,39 @@ def upload_csv():
         logger.error(traceback.format_exc()) 
         return jsonify({"error": "Check server logs for database/importer crash."}), 500
 
+@app.route('/api/sync_splitwise', methods=['POST'])
+@login_required
+def sync_splitwise():
+    try:
+        from splitwise_sync import run_splitwise_sync
+        success = run_splitwise_sync()
+        if success:
+            return jsonify({"status": "Splitwise sync successful."})
+        else:
+            return jsonify({"error": "Sync failed. Check server logs."}), 500
+    except Exception as e:
+        logger.error(f"Sync route failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/expense/splitwise', methods=['POST'])
+@login_required
+def push_splitwise_expense():
+    data = request.json
+    try:
+        from splitwise_sync import push_expense_to_splitwise
+        success, result = push_expense_to_splitwise(
+            description=data['description'],
+            cost=data['amount'],
+            date_str=data.get('date')
+        )
+        if success:
+            return jsonify({"status": "Successfully pushed to Splitwise!", "id": result})
+        else:
+            return jsonify({"error": f"Splitwise API Error: {result}"}), 500
+    except Exception as e:
+        logger.error(f"Push to Splitwise failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # ==========================================
 # BUDGET & INCOME PAGES
 # ==========================================
@@ -486,6 +525,45 @@ def handle_income():
     cursor.close()
     conn.close()
     return jsonify(streams)
+
+@app.route('/api/income/update', methods=['POST'])
+@login_required
+def update_income():
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            UPDATE income_streams SET source_name = %s, monthly_gross = %s, tax_rate = %s 
+            WHERE id = %s
+        """
+        cursor.execute(query, (data['source'], data['gross'], data['tax'], data['id']))
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error updating income: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/income/delete', methods=['POST'])
+@login_required
+def delete_income():
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = "DELETE FROM income_streams WHERE id = %s"
+        cursor.execute(query, (int(data['id']),))
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error deleting income: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.route('/api/budget/progress')
 @login_required
@@ -676,6 +754,112 @@ def get_categories():
     conn.close()
     return jsonify(results)
 
+@app.route('/api/finance/housing-ratio')
+@login_required
+def get_housing_ratio():
+    user_id = int(request.args.get('user_id', 0))
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # 1. Get Monthly Net Income
+        if user_id == 2: # Household
+            cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams")
+        else: # Gus (0) or Joules (1)
+            cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams WHERE user_id = %s", (user_id,))
+        inc_res = cursor.fetchone()
+        income = float(inc_res['inc'] or 0)
+
+        # 2. Get Monthly Housing Costs (Rent, Utilities, Home Maintenance)
+        # Categories with parent_name 'Home' or 'Utilities'
+        if user_id == 2:
+            share_calc = "SUM(t.Gus_share + t.Joules_share)"
+        else:
+            share_calc = f"SUM(t.{'Gus' if user_id == 0 else 'Joules'}_share)"
+
+        query = f"""
+            SELECT {share_calc} as total
+            FROM transactions t
+            JOIN categories c ON t.category_id = c.id
+            WHERE (c.parent_name IN ('Home', 'Utilities'))
+            AND MONTH(t.date) = MONTH(CURDATE()) AND YEAR(t.date) = YEAR(CURDATE())
+        """
+        cursor.execute(query)
+        cost_res = cursor.fetchone()
+        housing_cost = float(cost_res['total'] or 0)
+
+        ratio = (housing_cost / income * 100) if income > 0 else 0
+        
+        return jsonify({
+            "income": income,
+            "housing_cost": housing_cost,
+            "ratio": round(ratio, 1)
+        })
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/update_category', methods=['POST'])
+@login_required
+def update_transaction_category():
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        query = "UPDATE transactions SET category_id = %s WHERE id = %s"
+        cursor.execute(query, (int(data['category_id']), int(data['transaction_id'])))
+        conn.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error updating category: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/finance/snapshot', methods=['POST'])
+@login_required
+def take_financial_snapshot():
+    data = request.json
+    user_id = int(data.get('user_id', 0))
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    
+    try:
+        # 1. Calculate Total Net Worth
+        cursor.execute("SELECT SUM(current_value) as nw FROM assets WHERE user_id = %s", (user_id,))
+        nw_res = cursor.fetchone()
+        nw_total = float(nw_res['nw'] or 0)
+        
+        # 2. Calculate Total Net Income
+        cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams WHERE user_id = %s", (user_id,))
+        inc_res = cursor.fetchone()
+        inc_total = float(inc_res['inc'] or 0)
+        
+        # 3. Save to History (Using ON DUPLICATE KEY UPDATE to allow same-day overwrites)
+        cursor.execute("""
+            INSERT INTO net_worth_history (user_id, snapshot_date, total_value) 
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE total_value = VALUES(total_value)
+        """, (user_id, today, nw_total))
+        
+        cursor.execute("""
+            INSERT INTO income_history (user_id, snapshot_date, total_net_income) 
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE total_net_income = VALUES(total_net_income)
+        """, (user_id, today, inc_total))
+        
+        conn.commit()
+        return jsonify({"status": "success", "nw": nw_total, "inc": inc_total})
+    except Exception as e:
+        logger.error(f"Snapshot Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
 if __name__ == '__main__':
     # For production, use gunicorn
-    app.run(debug=app.config['DEBUG'], host='0.0.0.0', port=5001)
+    # Enabled threaded=True to handle parallel dashboard API calls efficiently
+    app.run(debug=app.config['DEBUG'], host='0.0.0.0', port=5001, threaded=True)
