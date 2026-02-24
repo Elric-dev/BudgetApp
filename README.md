@@ -41,7 +41,7 @@ mysql -u budget_user -p budget_db < schema.sql
 ### 3. Application Installation
 Clone the repository and set up a Python Virtual Environment:
 ```bash
-git clone https://github.com/yourusername/BudgetApp.git
+git clone https://github.com/Elric-dev/BudgetApp.git
 cd BudgetApp
 
 python3 -m venv venv
@@ -64,6 +64,8 @@ DB_NAME=budget_db
 
 # Optional: Splitwise Integration
 SPLITWISE_API_KEY=your_key
+SPLITWISE_CUSTOMER_KEY=customer_key
+SPLITWISE_CUSTOMER_SECRET=customer_secret
 ```
 
 ### 5. Initialization (Backfill)
@@ -119,5 +121,4 @@ Access at `http://localhost:5001`.
 *   **SHA-256 Deduplication**: Ensures CSV imports never create double entries.
 *   **Multi-Profile Engine**: Real-time switching between individual and household logic.
 
-**Developed by Gus & Gemini CLI**  
-*Strategic Engineering for Personal Finance.*
+
