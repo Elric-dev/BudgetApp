@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from dotenv import load_dotenv
 
-from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
+from flask import Flask, jsonify, render_template, request, redirect, url_for, flash, g
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -34,12 +34,10 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     cursor.execute("SELECT user_id, name FROM users WHERE user_id = %s", (user_id,))
     user_data = cursor.fetchone()
     cursor.close()
-    conn.close()
     if user_data:
         return User(user_data['user_id'], user_data['name'])
     return None
@@ -56,8 +54,16 @@ db_pool = mysql.connector.pooling.MySQLConnectionPool(
     database=app.config['DB_NAME']
 )
 
-def get_db_connection():
-    return db_pool.get_connection()
+def get_db():
+    if 'db' not in g:
+        g.db = db_pool.get_connection()
+    return g.db
+
+@app.teardown_appcontext
+def teardown_db(exception):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 # --- HELPER UTILITIES ---
 def get_date_filter(period):
@@ -82,12 +88,10 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = get_db().cursor(dictionary=True)
         cursor.execute("SELECT * FROM users WHERE name = %s", (username,))
         user_data = cursor.fetchone()
         cursor.close()
-        conn.close()
         
         # Simple auth: check if user exists and password matches
         # Note: In a real system, you'd use check_password_hash
@@ -101,12 +105,11 @@ def login():
             # IF no password set yet, allow first login to SET password
             # SECURE THIS IN REAL PROD: This is a "first run" convenience
             pw_hash = generate_password_hash(password)
-            conn = get_db_connection()
-            cursor = conn.cursor()
+            db = get_db()
+            cursor = db.cursor()
             cursor.execute("UPDATE users SET password_hash = %s WHERE user_id = %s", (pw_hash, user_data['user_id']))
-            conn.commit()
+            db.commit()
             cursor.close()
-            conn.close()
             user_obj = User(user_data['user_id'], user_data['name'])
             login_user(user_obj)
             return redirect(url_for('index'))
@@ -135,8 +138,7 @@ def index():
 def dashboard_summary():
     """Top-level KPIs for Net Worth, Income, Spending, and Savings"""
     user_id = int(request.args.get('user_id', 0))
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     
     try:
         if user_id == 2: # Household
@@ -155,6 +157,10 @@ def dashboard_summary():
             """)
             res = cursor.fetchone()
             spent = res['spent'] if res and res['spent'] else 0
+            
+            # Household goals are average or sum? Let's use Gus's settings as default or 20/50
+            cursor.execute("SELECT * FROM user_settings WHERE user_id = 0")
+            settings = cursor.fetchone()
         else: # Gus (0) or Joules (1)
             cursor.execute("SELECT SUM(current_value) as nw FROM assets WHERE user_id = %s", (user_id,))
             res = cursor.fetchone()
@@ -172,22 +178,28 @@ def dashboard_summary():
             """)
             res = cursor.fetchone()
             spent = res['spent'] if res and res['spent'] else 0
+            
+            cursor.execute("SELECT * FROM user_settings WHERE user_id = %s", (user_id,))
+            settings = cursor.fetchone()
+
+        if not settings:
+            settings = {"savings_goal_pct": 20.0, "expenses_goal_pct": 50.0}
 
         return jsonify({
             "net_worth": float(nw), "income": float(inc),
-            "spent": float(spent), "savings": float(inc - spent)
+            "spent": float(spent), "savings": float(inc - spent),
+            "savings_goal_pct": float(settings['savings_goal_pct']),
+            "expenses_goal_pct": float(settings['expenses_goal_pct'])
         })
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/spending/parent-categories', methods=['GET'])
 @login_required
 def get_parent_spending():
     user_id = int(request.args.get('user_id', 0))
     period = request.args.get('period', 'current')
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     
     date_clause, _ = get_date_filter(period)
     
@@ -215,7 +227,6 @@ def get_parent_spending():
         return jsonify({"labels": [r['parent_class'] for r in rows], "values": [float(r['total']) for r in rows]})
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/spending/sub-categories', methods=['GET'])
 @login_required
@@ -223,8 +234,7 @@ def get_sub_spending():
     user_id = int(request.args.get('user_id', 0))
     parent_name = request.args.get('parent_name')
     period = request.args.get('period', 'current')
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     
     date_clause, _ = get_date_filter(period)
     
@@ -251,7 +261,6 @@ def get_sub_spending():
         return jsonify({"labels": [r['sub_category'] for r in rows], "values": [float(r['total']) for r in rows]})
     finally:
         cursor.close()
-        conn.close()
 
 # ==========================================
 # TRANSACTIONS & CLEANUP PAGES
@@ -267,8 +276,7 @@ def transactions_page():
 def get_transactions_paginated():
     page = int(request.args.get('page', 1))
     offset = (page - 1) * 20
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     cursor.execute("SELECT COUNT(*) as count FROM transactions")
     total_count = cursor.fetchone()['count']
     query = """
@@ -281,15 +289,14 @@ def get_transactions_paginated():
     cursor.execute(query, (offset,))
     rows = cursor.fetchall()
     cursor.close()
-    conn.close()
     return jsonify({"transactions": rows, "total": total_count, "page": page})
 
 @app.route('/api/transactions/update', methods=['POST'])
 @login_required
 def update_transaction():
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
     try:
         query = """
             UPDATE transactions SET category_id = %s, description = %s, total_amount = %s, 
@@ -297,32 +304,30 @@ def update_transaction():
         """
         cursor.execute(query, (int(data['category_id']), data['description'], float(data['total_amount']),
                                float(data['Gus_share']), float(data['Joules_share']), int(data['id'])))
-        conn.commit()
+        db.commit()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.error(f"Error updating transaction: {e}")
         return jsonify({"error": "Failed to update transaction"}), 500
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/transactions/delete', methods=['POST'])
 @login_required
 def delete_transaction():
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
     try:
         query = "DELETE FROM transactions WHERE id = %s"
         cursor.execute(query, (int(data['id']),))
-        conn.commit()
+        db.commit()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.error(f"Error deleting transaction: {e}")
         return jsonify({"error": "Failed to delete transaction"}), 500
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/cleanup')
 @login_required
@@ -332,8 +337,7 @@ def cleanup_page():
 @app.route('/api/uncategorized')
 @login_required
 def get_uncategorized():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     query = """
         SELECT t.id, DATE_FORMAT(t.date, '%Y-%m-%d') as date, t.description, t.total_amount, c.name as current_category
         FROM transactions t
@@ -344,7 +348,6 @@ def get_uncategorized():
     cursor.execute(query)
     results = cursor.fetchall()
     cursor.close()
-    conn.close()
     return jsonify(results)
 
 # ==========================================
@@ -354,20 +357,28 @@ def get_uncategorized():
 @app.route('/input')
 @login_required
 def input_page():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT id, name FROM categories ORDER BY name ASC")
-    cats = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return render_template('input.html', categories=cats)
+    db = get_db()
+    
+    # Fetch Expense Categories
+    exp_cursor = db.cursor(dictionary=True)
+    exp_cursor.execute("SELECT id, name FROM categories WHERE parent_name != 'Savings' OR parent_name IS NULL ORDER BY name ASC")
+    expense_cats = exp_cursor.fetchall()
+    exp_cursor.close()
+
+    # Fetch Savings Categories
+    sav_cursor = db.cursor(dictionary=True)
+    sav_cursor.execute("SELECT id, name FROM categories WHERE parent_name = 'Savings' ORDER BY name ASC")
+    savings_cats = sav_cursor.fetchall()
+    sav_cursor.close()
+
+    return render_template('input.html', expense_categories=expense_cats, savings_categories=savings_cats)
 
 @app.route('/api/expense/manual', methods=['POST'])
 @login_required
 def save_manual_expense():
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
     try:
         mock_row = {'Date': data.get('date'), 'Description': data.get('description'),
                     'Cost': data.get('amount'), 'Category': data.get('category_name')}
@@ -380,16 +391,41 @@ def save_manual_expense():
         total = float(data['amount'])
         g_share = total * (float(data['split_gus']) / 100)
         j_share = total * (float(data['split_joules']) / 100)
-        cursor.execute(query, (data['date'], data['description'], total, 0, int(data['category_id']), 
-                               0, g_share, j_share, 1 if (g_share > 0 and j_share > 0) else 0, t_hash))
-        conn.commit()
+        cursor.execute(query, (data['date'], data['description'], total, current_user.id, int(data['category_id']), 
+                               current_user.id, g_share, j_share, 1 if (g_share > 0 and j_share > 0) else 0, t_hash))
+        db.commit()
         return jsonify({"status": "success"}), 201
     except Exception as e:
         logger.error(f"Error saving manual expense: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
-        conn.close()
+
+@app.route('/api/savings/manual', methods=['POST'])
+@login_required
+def save_manual_saving():
+    data = request.json
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        query = """
+            INSERT INTO savings (user_id, date, category_id, amount, description) 
+            VALUES (%s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (
+            current_user.id,
+            data['date'],
+            data['category_id'],
+            data['amount'],
+            data.get('description')
+        ))
+        db.commit()
+        return jsonify({"status": "success"}), 201
+    except Exception as e:
+        logger.error(f"Error saving manual saving/investment: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
 
 @app.route('/api/upload_csv', methods=['POST'])
 @login_required
@@ -461,10 +497,9 @@ def budget_page():
 @login_required
 def list_budget_categories():
     user_id = request.args.get('user_id', 0)
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     query = """
-        SELECT c.id, c.name, COALESCE(b.target_amount, 0) as amount
+        SELECT c.id, c.name, c.parent_name, COALESCE(b.target_amount, 0) as amount
         FROM categories c
         LEFT JOIN budgets b ON c.name = b.category_name AND b.user_id = %s
         ORDER BY c.name ASC
@@ -472,37 +507,96 @@ def list_budget_categories():
     cursor.execute(query, (user_id,))
     rows = cursor.fetchall()
     cursor.close()
-    conn.close()
     return jsonify(rows)
+
+@app.route('/api/budget/settings', methods=['GET', 'POST'])
+@login_required
+def budget_settings():
+    user_id = request.args.get('user_id', 0)
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    
+    try:
+        if request.method == 'POST':
+            data = request.json
+            query = """
+                INSERT INTO user_settings (user_id, savings_goal_pct, expenses_goal_pct) 
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    savings_goal_pct = VALUES(savings_goal_pct), 
+                    expenses_goal_pct = VALUES(expenses_goal_pct)
+            """
+            cursor.execute(query, (user_id, data['savings_goal_pct'], data['expenses_goal_pct']))
+            db.commit()
+            return jsonify({"status": "success"})
+
+        cursor.execute("SELECT * FROM user_settings WHERE user_id = %s", (user_id,))
+        settings = cursor.fetchone()
+        if not settings:
+            settings = {"user_id": user_id, "savings_goal_pct": 20.0, "expenses_goal_pct": 50.0}
+        
+        return jsonify(settings)
+    
+    except mysql.connector.errors.ProgrammingError as e:
+        if e.errno == 1146: # Table 'user_settings' doesn't exist
+            logger.warning("user_settings table not found. Returning default values. Please run migrations.")
+            return jsonify({"user_id": user_id, "savings_goal_pct": 20.0, "expenses_goal_pct": 50.0})
+        else:
+            logger.error(f"Database error in budget_settings: {e}")
+            return jsonify({"error": "A database error occurred."}), 500
+    finally:
+        cursor.close()
 
 @app.route('/api/budget/save_items', methods=['POST'])
 @login_required
 def save_budget_items():
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    user_id = data.get('user_id')
+    db = get_db()
+    cursor = db.cursor()
     try:
+        # Save itemized budgets
         for item in data.get('items', []):
             query = """
                 INSERT INTO budgets (user_id, category_name, target_amount) VALUES (%s, %s, %s)
                 ON DUPLICATE KEY UPDATE target_amount = VALUES(target_amount)
             """
-            cursor.execute(query, (data['user_id'], item['name'], item['amount']))
-        conn.commit()
+            cursor.execute(query, (user_id, item['name'], item['amount']))
+        
+        # Save global strategy settings if provided
+        if 'savings_goal_pct' in data and 'expenses_goal_pct' in data:
+            query = """
+                INSERT INTO user_settings (user_id, savings_goal_pct, expenses_goal_pct) 
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    savings_goal_pct = VALUES(savings_goal_pct), 
+                    expenses_goal_pct = VALUES(expenses_goal_pct)
+            """
+            cursor.execute(query, (user_id, data['savings_goal_pct'], data['expenses_goal_pct']))
+            
+        db.commit()
         return jsonify({"status": "success"})
+    except mysql.connector.errors.ProgrammingError as e:
+        if e.errno == 1146: # Table doesn't exist
+            logger.error("user_settings table not found. Cannot save global goals. Please run migrations.")
+            # We can still try to commit the budget items
+            db.commit()
+            return jsonify({"status": "success", "warning": "Itemized budgets saved, but global goals could not be. Please run database migrations."})
+        else:
+            logger.error(f"Error saving budget data: {e}")
+            return jsonify({"error": "Failed to save budget"}), 500
     except Exception as e:
-        logger.error(f"Error saving budget items: {e}")
-        return jsonify({"error": "Failed to save budget"}), 500
+        logger.error(f"An unexpected error occurred while saving budget data: {e}")
+        return jsonify({"error": "An unexpected error occurred."}), 500
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/income', methods=['GET', 'POST'])
 @login_required
 def handle_income():
     user_id = request.args.get('user_id', 0)
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
     if request.method == 'POST':
         data = request.json
         try:
@@ -511,67 +605,62 @@ def handle_income():
                 ON DUPLICATE KEY UPDATE monthly_gross = VALUES(monthly_gross), tax_rate = VALUES(tax_rate)
             """
             cursor.execute(query, (user_id, data['source'], data['gross'], data['tax']))
-            conn.commit()
+            db.commit()
             return jsonify({"status": "success"})
         except Exception as e:
             logger.error(f"Error saving income: {e}")
             return jsonify({"error": "Failed to save income"}), 500
         finally:
             cursor.close()
-            conn.close()
             
     cursor.execute("SELECT * FROM income_streams WHERE user_id = %s", (user_id,))
     streams = cursor.fetchall()
     cursor.close()
-    conn.close()
     return jsonify(streams)
 
 @app.route('/api/income/update', methods=['POST'])
 @login_required
 def update_income():
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
     try:
         query = """
             UPDATE income_streams SET source_name = %s, monthly_gross = %s, tax_rate = %s 
             WHERE id = %s
         """
         cursor.execute(query, (data['source'], data['gross'], data['tax'], data['id']))
-        conn.commit()
+        db.commit()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.error(f"Error updating income: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/income/delete', methods=['POST'])
 @login_required
 def delete_income():
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
     try:
         query = "DELETE FROM income_streams WHERE id = %s"
         cursor.execute(query, (int(data['id']),))
-        conn.commit()
+        db.commit()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.error(f"Error deleting income: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/budget/progress')
 @login_required
 def budget_progress():
     user_id = int(request.args.get('user_id', 0))
     parent_name = request.args.get('parent_name')
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     
     if user_id == 2:
         share_calc = "t.Gus_share + t.Joules_share"
@@ -619,14 +708,12 @@ def budget_progress():
         return jsonify(rows)
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/finance/burn-rate')
 @login_required
 def calculate_burn_rate():
     user_id = int(request.args.get('user_id', 0))
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     
     if user_id == 2:
         share_calc = "SUM(t.Gus_share + t.Joules_share)"
@@ -664,7 +751,6 @@ def calculate_burn_rate():
         return jsonify(results)
     finally:
         cursor.close()
-        conn.close()
 
 # ==========================================
 # NET WORTH & ASSETS PAGES
@@ -679,41 +765,37 @@ def networth_page():
 @login_required
 def get_networth():
     user_id = request.args.get('user_id', 0)
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     cursor.execute("SELECT * FROM assets WHERE user_id = %s ORDER BY current_value DESC", (user_id,))
     assets = cursor.fetchall()
     cursor.close()
-    conn.close()
     return jsonify(assets)
 
 @app.route('/api/networth/update', methods=['POST'])
 @login_required
 def update_asset():
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
     try:
         if data.get('id'):
             cursor.execute("UPDATE assets SET current_value = %s, asset_name = %s WHERE id = %s", (data['value'], data['name'], data['id']))
         else:
             cursor.execute("INSERT INTO assets (user_id, asset_name, asset_type, current_value) VALUES (%s, %s, %s, %s)",
                            (data['user_id'], data['name'], data['type'], data['value']))
-        conn.commit()
+        db.commit()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.error(f"Error updating asset: {e}")
         return jsonify({"error": "Failed to update asset"}), 500
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/finance/history')
 @login_required
 def finance_history():
     user_id = int(request.args.get('user_id', 0))
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     if user_id == 2:
         query = """
             WITH DateRange AS (SELECT DISTINCT snapshot_date FROM net_worth_history UNION SELECT DISTINCT snapshot_date FROM income_history)
@@ -732,7 +814,6 @@ def finance_history():
         cursor.execute(query, (user_id,))
     rows = cursor.fetchall()
     cursor.close()
-    conn.close()
     return jsonify({
         "dates": [r['snapshot_date'].strftime('%%d %%b') for r in rows],
         "nw_values": [float(r['nw_total'] or 0) for r in rows],
@@ -746,20 +827,17 @@ def finance_history():
 @app.route('/api/categories')
 @login_required
 def get_categories():
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     cursor.execute("SELECT id, name, parent_name FROM categories ORDER BY parent_name, name")
     results = cursor.fetchall()
     cursor.close()
-    conn.close()
     return jsonify(results)
 
 @app.route('/api/finance/housing-ratio')
 @login_required
 def get_housing_ratio():
     user_id = int(request.args.get('user_id', 0))
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = get_db().cursor(dictionary=True)
     
     try:
         # 1. Get Monthly Net Income
@@ -797,25 +875,23 @@ def get_housing_ratio():
         })
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/update_category', methods=['POST'])
 @login_required
 def update_transaction_category():
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    db = get_db()
+    cursor = db.cursor()
     try:
         query = "UPDATE transactions SET category_id = %s WHERE id = %s"
         cursor.execute(query, (int(data['category_id']), int(data['transaction_id'])))
-        conn.commit()
+        db.commit()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.error(f"Error updating category: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
-        conn.close()
 
 @app.route('/api/finance/snapshot', methods=['POST'])
 @login_required
@@ -823,8 +899,8 @@ def take_financial_snapshot():
     data = request.json
     user_id = int(data.get('user_id', 0))
     today = datetime.now().strftime('%Y-%m-%d')
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
     
     try:
         # 1. Calculate Total Net Worth
@@ -850,14 +926,13 @@ def take_financial_snapshot():
             ON DUPLICATE KEY UPDATE total_net_income = VALUES(total_net_income)
         """, (user_id, today, inc_total))
         
-        conn.commit()
+        db.commit()
         return jsonify({"status": "success", "nw": nw_total, "inc": inc_total})
     except Exception as e:
         logger.error(f"Snapshot Error: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
-        conn.close()
 
 if __name__ == '__main__':
     # For production, use gunicorn

@@ -1,105 +1,123 @@
-
 # BudgetArchitect
 
-**A strategic financial management engine for precision budgeting.** This application transforms raw transaction data from Splitwise into a high-level financial roadmap. It is designed to handle individual and household-level financial planning with a focus on data integrity and real-time projections.
-
-See screenshots for UI impressions. 
-
----
-
-## Engineering Architecture
-
-The core of the application is built on a **Relational Bridge Architecture**. Unlike simple trackers, BudgetArchitect decouples transaction imports from budget targets.
-
-### Key Logic:
-* **Natural Key Mapping**: Uses `category_name` as the primary bridge between CSV imports and user targets, ensuring persistence even if internal database IDs shift.
-* **Upsert Pattern**: Implements `ON DUPLICATE KEY UPDATE` logic for batch-saving budget strategies, minimizing API latency and database overhead.
-* **Projection Engine**: Real-time JavaScript logic calculates "Allowed Spend" and "Target Savings" dynamically as itemized costs are adjusted.
+**A strategic financial management engine for precision budgeting.** 
+BudgetArchitect transforms raw transaction data and Splitwise syncs into a high-level financial roadmap. It decouples daily spending from long-term investment strategy, providing a "Command Center" view of individual and household wealth.
 
 ---
 
-## Features
+## 🚀 Raspberry Pi / Remote Server Setup
 
-* **Multi-Profile Support**: Seamlessly toggle between individual views (**Gus**, **Joules**) and a consolidated **🏠 Household** view.
-* **Itemized Budgeting**: Set granular targets for every category imported via Splitwise.
-* **High-Contrast UI**: A custom-engineered dark mode interface designed for data density and maximum readability.
-* **Real-time Burn Rate**: Live percentage calculations to visualize how much of your net income is committed to fixed costs vs. savings.
+Follow these steps to deploy BudgetArchitect as a persistent home server.
 
-
-
----
-
-## Database Schema
-
-The application utilizes a MySQL/MariaDB backend with the following relational structure:
-
-* **`categories`**: The source of truth for all transaction types.
-* **`budgets`**: Stores user-specific limits, linked via `category_name` with a `UNIQUE` constraint on `(user_id, category_name)`.
-
-
-
----
-
-## Installation & Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone [https://github.com/Elric-dev/BudgetApp.git](https://github.com/Elric-dev/BudgetApp.git)
-   cd BudgetApp```
-
-2. **Initialize the Database**
-Execute the `schema.sql` file in your MySQL environment to set up tables and constraints:
+### 1. OS Preparation & Prerequisites
+Connect to your Pi via SSH and ensure your system is up to date:
 ```bash
-mysql -u [user] -p [database_name] < schema.sql
-
+sudo apt update && sudo apt upgrade -y
+sudo apt install git python3-pip python3-venv mariadb-server nginx -y
 ```
 
+### 2. Database Configuration
+Secure your MariaDB installation and create the application database:
+```bash
+# Secure the installation (set a root password if prompted)
+sudo mysql_secure_installation
 
-3. **Configure Environment**
-Create a `.env` file to manage your database credentials (ensure this is ignored by git):
+# Log into MariaDB
+sudo mysql -u root -p
+
+# Run these commands inside the MariaDB prompt:
+CREATE DATABASE budget_db;
+CREATE USER 'budget_user'@'localhost' IDENTIFIED BY 'your_secure_password';
+GRANT ALL PRIVILEGES ON budget_db.* TO 'budget_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+Initialize the schema:
+```bash
+mysql -u budget_user -p budget_db < schema.sql
+```
+
+### 3. Application Installation
+Clone the repository and set up a Python Virtual Environment:
+```bash
+git clone https://github.com/yourusername/BudgetApp.git
+cd BudgetApp
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 4. Environment Configuration
+Create a `.env` file based on the template:
+```bash
+nano .env
+```
+Add your credentials:
 ```text
+SECRET_KEY=pick-a-random-long-string
 DB_HOST=localhost
-DB_USER=your_user
-DB_PASS=your_password
+DB_USER=budget_user
+DB_PASS=your_secure_password
 DB_NAME=budget_db
 
+# Optional: Splitwise Integration
+SPLITWISE_API_KEY=your_key
 ```
 
-
-4. **Run the Server**
+### 5. Initialization (Backfill)
+Populate your new instance with baseline data and historical charts:
 ```bash
-python app.py
-
+python backfill_history.py
 ```
 
+### 6. Production Deployment (Systemd)
+Create a service file to ensure the app starts on boot and restarts if it crashes:
+```bash
+sudo nano /etc/systemd/system/budgetapp.service
+```
+Paste the following (adjust `User` and `WorkingDirectory` paths):
+```ini
+[Unit]
+Description=Gunicorn instance to serve BudgetArchitect
+After=network.target
 
+[Service]
+User=pi
+Group=www-data
+WorkingDirectory=/home/pi/BudgetApp
+Environment="PATH=/home/pi/BudgetApp/venv/bin"
+ExecStart=/home/pi/BudgetApp/venv/bin/gunicorn --workers 3 --bind 0.0.0.0:5001 wsgi:app
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Start and enable the service:
+```bash
+sudo systemctl start budgetapp
+sudo systemctl enable budgetapp
+```
 
 ---
 
-## Roadmap & Future Development
+## 🛠️ Local Development
+If running locally for testing:
+```bash
+source venv/bin/activate
+python app.py
+```
+Access at `http://localhost:5001`. 
 
-I will be actively evolving this tool to include advanced wealth management features:
-
-### 1. Automated Buffer Allocation
-
-Logic to automatically calculate "Excess Liquidity" after targets and savings goals are met, suggesting rebalancing amounts for investment accounts.
-
-### 2. Splitwise API Integration
-
-Moving from manual CSV imports to a direct API sync to provide hourly updates on household spending.
-
-### 3. Machine Learning Forecasting
-
-Integration of a predictive model to forecast future "Burn Rates" based on historical seasonality (e.g., higher utility costs in winter).
-
-### 4. Debt Tracker:
-Integrate a debt tracking section within the Net Worth area. Display the total debt amount and the debt-to-net-worth ratio.
-
-### 5. Savings & Investment Page: Create a new dedicated page for allocating savings and investments, covering:
-Compulsory retirement accounts. Brokerage accounts. Standard savings accounts.
-
-
+**First Login:** Enter any username (Gus or Joules). The system will ask you to create a password on your first successful attempt.
 
 ---
-Interested in helping out?
-Contact me on linkedin or my email to discuss colaboration avenues!
+
+## 📈 Technical Architecture
+*   **Relational Bridge**: Decouples volatile transaction data from stable strategic targets.
+*   **SHA-256 Deduplication**: Ensures CSV imports never create double entries.
+*   **Multi-Profile Engine**: Real-time switching between individual and household logic.
+
+**Developed by Gus & Gemini CLI**  
+*Strategic Engineering for Personal Finance.*

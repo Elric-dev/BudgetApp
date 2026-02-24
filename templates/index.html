@@ -1,22 +1,6 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<style>
-    /* High-Visibility Overrides for Dark Mode */
-    .text-light-gray { color: #cccccc !important; }
-    .card { transition: transform 0.2s; background-color: #1a1a1a !important; }
-    .card:hover { transform: translateY(-3px); }
-    #chart-center-label { 
-        pointer-events: none; 
-        z-index: 10; 
-        text-align: center; 
-        position: absolute;
-        opacity: 0; /* Hide until positioned to prevent jumping */
-        transition: opacity 0.2s ease-in;
-    }
-    .form-select-sm { font-size: 0.75rem; }
-</style>
-
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h3 class="text-info"><i class="bi bi-speedometer2 me-2"></i>Executive Dashboard</h3>
     <div class="d-flex align-items-center gap-2">

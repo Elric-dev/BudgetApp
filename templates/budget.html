@@ -1,49 +1,6 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<style>
-    /* High-Contrast Typography */
-    .text-light {
-        color: #f8f9fa !important;
-        font-weight: 600;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-    }
-
-    /* Projection Summary Labels (Brighter) */
-    .summary-label {
-        color: #e0e0e0 !important;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-size: 0.85rem;
-    }
-
-    /* High-contrast colors for Euro values */
-    #proj-income { color: #ffffff !important; font-weight: bold; font-size: 1.3rem; }
-    #proj-savings { color: #2ecc71 !important; font-weight: bold; font-size: 1.3rem; }
-    #proj-burn { color: #f1c40f !important; font-weight: bold; font-size: 1.3rem; }
-
-    /* Input Styling */
-    .cat-budget-input {
-        background-color: #1a1a1a !important;
-        color: #0dcaf0 !important;
-        border: 1px solid #444 !important;
-        font-weight: bold;
-        text-align: right;
-    }
-
-    .cat-budget-input:focus {
-        background-color: #000 !important;
-        border-color: #0dcaf0 !important;
-        box-shadow: 0 0 8px rgba(13, 202, 240, 0.5);
-    }
-
-    #category-list::-webkit-scrollbar { width: 6px; }
-    #category-list::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; }
-    
-    .border-bottom-custom { border-bottom: 1px solid #333 !important; }
-</style>
-
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h3 class="text-info"><i class="bi bi-wallet2 me-2"></i>Budget Planner</h3>
@@ -65,7 +22,7 @@
                 <div class="mb-4">
                     <label class="text-success small fw-bold text-uppercase d-block mb-2">Savings & Investment Goal (%)</label>
                     <div class="input-group">
-                        <input type="number" id="savings_pct" class="form-control bg-black text-white border-secondary" value="20" oninput="calculateProjections()">
+                        <input type="number" id="savings_pct" class="form-control bg-black text-white border-secondary" value="20" oninput="calculateProjectionsFromPct()">
                         <span class="input-group-text bg-secondary border-secondary text-white">%</span>
                     </div>
                 </div>
@@ -73,7 +30,7 @@
                 <div class="mb-4">
                     <label class="text-warning small fw-bold text-uppercase d-block mb-2">Max Monthly Burn (%)</label>
                     <div class="input-group">
-                        <input type="number" id="expenses_pct" class="form-control bg-black text-white border-secondary" value="50" oninput="calculateProjections()">
+                        <input type="number" id="expenses_pct" class="form-control bg-black text-white border-secondary" value="50" oninput="calculateProjectionsFromPct()">
                         <span class="input-group-text bg-secondary border-secondary text-white">%</span>
                     </div>
                 </div>
@@ -81,15 +38,37 @@
                 <div class="p-4 bg-black rounded border border-secondary shadow-sm">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <span class="summary-label">Total Net Income:</span>
-                        <span id="proj-income">€0.00</span>
+                        <span id="proj-income" class="text-white fw-bold h4">€0.00</span>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <span class="summary-label">Target Savings:</span>
-                        <span id="proj-savings">€0.00</span>
+                        <span id="proj-savings" class="text-success fw-bold h4">€0.00</span>
                     </div>
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="summary-label">Allowed Spend:</span>
-                        <span id="proj-burn">€0.00</span>
+                        <span id="proj-burn" class="text-warning fw-bold h4">€0.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Savings Table -->
+            <div class="card bg-dark border-secondary p-4 shadow-lg">
+                <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-success pb-2">
+                    <h5 class="text-white mb-0 text-uppercase" style="letter-spacing: 1px;">Monthly Savings & Investments</h5>
+                </div>
+
+                <div id="savings-list" style="max-height: 300px; overflow-y: auto;" class="pe-2">
+                    <!-- Savings categories will be loaded here -->
+                </div>
+
+                <div class="mt-4 pt-3 border-top border-secondary d-flex justify-content-between align-items-end">
+                    <div>
+                        <small class="summary-label d-block">Itemized Total</small>
+                        <h3 id="savings-total" class="text-success mb-0">€0.00</h3>
+                    </div>
+                    <div class="text-end">
+                        <small class="summary-label d-block">Goal Coverage</small>
+                        <span id="savings-coverage" class="badge bg-success">0%</span>
                     </div>
                 </div>
             </div>
@@ -98,17 +77,22 @@
         <div class="col-md-7">
             <div class="card bg-dark border-secondary p-4 shadow-lg">
                 <div class="d-flex justify-content-between align-items-center mb-4 border-bottom border-info pb-2">
-                    <h5 class="text-white mb-0 text-uppercase" style="letter-spacing: 1px;">Itemized Monthly Expenses</h5>
+                    <h5 class="text-white mb-0 text-uppercase" style="letter-spacing: 1px;">Itemized Monthly Expenses (Splitwise)</h5>
                     <span id="cat-count" class="badge bg-info text-dark">0 Categories</span>
                 </div>
 
-                <div id="category-list" style="max-height: 480px; overflow-y: auto;" class="pe-2">
-                    </div>
+                <div id="category-list" style="max-height: 600px; overflow-y: auto;" class="pe-2">
+                    <!-- Expense categories will be loaded here -->
+                </div>
 
                 <div class="mt-4 pt-3 border-top border-secondary d-flex justify-content-between align-items-center">
                     <div>
-                        <small class="summary-label d-block">Total Itemized</small>
+                        <small class="summary-label d-block">Itemized Total</small>
                         <h3 id="itemized-total" class="text-white mb-0">€0.00</h3>
+                    </div>
+                    <div class="text-center">
+                        <small class="summary-label d-block">Budget Coverage</small>
+                        <span id="expense-coverage" class="badge bg-warning text-dark">0%</span>
                     </div>
                     <button class="btn btn-info fw-bold px-5 py-2 shadow" onclick="saveAllBudgetData()">
                         <i class="bi bi-cloud-check-fill me-2"></i>SAVE ALL TARGETS
@@ -133,14 +117,21 @@ async function initBudgetPage() {
     netIncome = summary.income || 0;
     document.getElementById('proj-income').innerText = `€${netIncome.toLocaleString()}`;
 
-    // 2. Load categories from DB
+    // 2. Load Global Strategy Settings
+    const resSettings = await fetch(`/api/budget/settings?user_id=${userId}`);
+    const settings = await resSettings.json();
+    document.getElementById('savings_pct').value = settings.savings_goal_pct;
+    document.getElementById('expenses_pct').value = settings.expenses_goal_pct;
+
+    // 3. Load categories from DB
     await loadCategoryItems(userId);
     
-    calculateProjections();
+    calculateProjectionsFromPct();
 }
 
 async function loadCategoryItems(userId) {
     const listContainer = document.getElementById('category-list');
+    const savingsContainer = document.getElementById('savings-list');
     
     try {
         const res = await fetch(`/api/budget/list?user_id=${userId}`);
@@ -151,12 +142,16 @@ async function loadCategoryItems(userId) {
             return;
         }
 
-        document.getElementById('cat-count').innerText = `${categories.length} Categories`;
+        const expenses = categories.filter(c => c.parent_name !== 'Savings');
+        const savings = categories.filter(c => c.parent_name === 'Savings');
 
-        listContainer.innerHTML = categories.map(c => `
+        document.getElementById('cat-count').innerText = `${expenses.length} Categories`;
+
+        listContainer.innerHTML = expenses.map(c => `
             <div class="row g-2 align-items-center mb-2 pb-2 border-bottom-custom">
                 <div class="col-7">
-                    <span class="text-light">${c.name}</span>
+                    <span class="text-white fw-bold">${c.name}</span>
+                    <br><small class="text-muted text-uppercase" style="font-size: 0.65rem;">${c.parent_name || 'Other'}</small>
                 </div>
                 <div class="col-5">
                     <div class="input-group input-group-sm">
@@ -165,35 +160,85 @@ async function loadCategoryItems(userId) {
                                class="form-control cat-budget-input" 
                                data-name="${c.name}" 
                                value="${c.amount || 0}" 
-                               oninput="calculateItemizedTotal()">
+                               oninput="calculateTotals()">
+                        <span class="input-group-text bg-dark border-secondary text-muted small pct-label" style="width: 55px; font-size: 0.7rem;">0%</span>
                     </div>
                 </div>
             </div>
         `).join('');
 
-        calculateItemizedTotal();
+        savingsContainer.innerHTML = savings.map(c => `
+            <div class="row g-2 align-items-center mb-2 pb-2 border-bottom-custom">
+                <div class="col-7">
+                    <span class="text-white fw-bold">${c.name}</span>
+                </div>
+                <div class="col-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-black border-secondary text-success">€</span>
+                        <input type="number" 
+                               class="form-control savings-budget-input" 
+                               data-name="${c.name}" 
+                               value="${c.amount || 0}" 
+                               oninput="calculateTotals()">
+                        <span class="input-group-text bg-dark border-secondary text-muted small pct-label" style="width: 55px; font-size: 0.7rem;">0%</span>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+        calculateTotals();
     } catch (err) {
         console.error(err);
         listContainer.innerHTML = `<div class="text-danger">Failed to fetch data.</div>`;
     }
 }
 
-function calculateItemizedTotal() {
-    let total = 0;
-    document.querySelectorAll('.cat-budget-input').forEach(input => {
-        total += parseFloat(input.value) || 0;
+function calculateTotals() {
+    let expenseTotal = 0;
+    const expenseInputs = document.querySelectorAll('.cat-budget-input');
+    expenseInputs.forEach(input => {
+        const val = parseFloat(input.value) || 0;
+        expenseTotal += val;
+        
+        // Update per-item % label
+        const pctLabel = input.parentElement.querySelector('.pct-label');
+        if (pctLabel && netIncome > 0) {
+            pctLabel.innerText = ((val / netIncome) * 100).toFixed(1) + '%';
+        }
     });
-    document.getElementById('itemized-total').innerText = `€${total.toLocaleString()}`;
+    document.getElementById('itemized-total').innerText = `€${expenseTotal.toLocaleString()}`;
+
+    let savingsTotal = 0;
+    const savingsInputs = document.querySelectorAll('.savings-budget-input');
+    savingsInputs.forEach(input => {
+        const val = parseFloat(input.value) || 0;
+        savingsTotal += val;
+
+        // Update per-item % label
+        const pctLabel = input.parentElement.querySelector('.pct-label');
+        if (pctLabel && netIncome > 0) {
+            pctLabel.innerText = ((val / netIncome) * 100).toFixed(1) + '%';
+        }
+    });
+    document.getElementById('savings-total').innerText = `€${savingsTotal.toLocaleString()}`;
     
-    // Sync the "Burn %" based on itemized total
+    // Update Coverage Indicators
+    const savingsGoalPct = parseFloat(document.getElementById('savings_pct').value) || 0;
+    const expenseGoalPct = parseFloat(document.getElementById('expenses_pct').value) || 0;
+    
     if (netIncome > 0) {
-        const burnPct = (total / netIncome) * 100;
-        document.getElementById('expenses_pct').value = burnPct.toFixed(1);
-        calculateProjections();
+        const targetSavingsEur = (netIncome * savingsGoalPct) / 100;
+        const targetExpenseEur = (netIncome * expenseGoalPct) / 100;
+        
+        const savingsCov = targetSavingsEur > 0 ? (savingsTotal / targetSavingsEur) * 100 : 0;
+        const expenseCov = targetExpenseEur > 0 ? (expenseTotal / targetExpenseEur) * 100 : 0;
+        
+        document.getElementById('savings-coverage').innerText = `${savingsCov.toFixed(0)}% of Goal`;
+        document.getElementById('expense-coverage').innerText = `${expenseCov.toFixed(0)}% of Budget`;
     }
 }
 
-function calculateProjections() {
+function calculateProjectionsFromPct() {
     const sPct = parseFloat(document.getElementById('savings_pct').value) || 0;
     const ePct = parseFloat(document.getElementById('expenses_pct').value) || 0;
 
@@ -202,16 +247,20 @@ function calculateProjections() {
 
     document.getElementById('proj-savings').innerText = `€${sEur.toLocaleString()}`;
     document.getElementById('proj-burn').innerText = `€${eEur.toLocaleString()}`;
+    
+    // Refresh coverage indicators
+    calculateTotals();
 }
 
 async function saveAllBudgetData() {
     const userId = document.getElementById('userSelect').value;
-    const inputs = document.querySelectorAll('.cat-budget-input');
+    const expenseInputs = document.querySelectorAll('.cat-budget-input');
+    const savingsInputs = document.querySelectorAll('.savings-budget-input');
     
-    const items = Array.from(inputs).map(i => ({
-    name: i.dataset.name, // This creates the 'name' key for Python
-    amount: parseFloat(i.value) || 0
-}));
+    const items = [
+        ...Array.from(expenseInputs).map(i => ({ name: i.dataset.name, amount: parseFloat(i.value) || 0 })),
+        ...Array.from(savingsInputs).map(i => ({ name: i.dataset.name, amount: parseFloat(i.value) || 0 }))
+    ];
 
     const res = await fetch('/api/budget/save_items', {
         method: 'POST',
@@ -219,13 +268,13 @@ async function saveAllBudgetData() {
         body: JSON.stringify({
             user_id: parseInt(userId),
             items: items,
-            savings_pct: parseFloat(document.getElementById('savings_pct').value),
-            expenses_pct: parseFloat(document.getElementById('expenses_pct').value)
+            savings_goal_pct: parseFloat(document.getElementById('savings_pct').value),
+            expenses_goal_pct: parseFloat(document.getElementById('expenses_pct').value)
         })
     });
 
     if (res.ok) {
-        alert("Success: Strategy updated!");
+        alert("Success: Strategy and all itemized targets saved!");
     } else {
         const err = await res.json();
         alert("Error: " + err.error);

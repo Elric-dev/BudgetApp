@@ -1,28 +1,48 @@
 /* --- Global Theme Foundation --- */
 :root {
     --bg-dark: #000000;
-    --bg-card: #111111;
-    --border-dim: #333333;
+    --bg-surface: #121212;
+    --bg-card: #1c1c1c;
+    --bg-sidebar: #0e0e0e;
+    --border-dim: #2d2d2d;
     --accent-cyan: #0dcaf0;
     --accent-green: #2ecc71;
     --accent-amber: #f1c40f;
+    --accent-red: #dc3545;
     --text-primary: #f8f9fa;
     --text-secondary: #b0b3b8;
+    --text-muted: #6c757d;
+    --text-light-gray: #cccccc;
 }
 
-body {
-    background-color: var(--bg-dark);
+html, body {
+    background-color: var(--bg-surface) !important;
     color: var(--text-primary);
     font-family: 'Inter', -apple-system, sans-serif;
-}
-
-/* --- Sidebar Styling --- */
-#sidebar {
-    background-color: #050505;
-    border-right: 1px solid var(--border-dim);
+    display: flex;
     min-height: 100vh;
+    margin: 0;
+    width: 100%;
 }
 
+/* --- Layout Structure --- */
+#sidebar {
+    width: 250px;
+    background-color: var(--bg-sidebar);
+    border-right: 1px solid var(--border-dim);
+    flex-shrink: 0;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+#main-content {
+    flex-grow: 1;
+    padding: 2rem;
+    overflow-y: auto;
+}
+
+/* --- Navigation --- */
 .nav-link {
     color: var(--text-secondary);
     font-weight: 500;
@@ -34,12 +54,22 @@ body {
     background-color: rgba(13, 202, 240, 0.08);
 }
 
+hr {
+    border-color: var(--border-dim);
+    opacity: 0.5;
+}
+
 /* --- Card & Container Logic --- */
 .card {
     background-color: var(--bg-card) !important;
     border: 1px solid var(--border-dim) !important;
     border-radius: 12px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-3px);
 }
 
 .card-header {
@@ -47,22 +77,33 @@ body {
     border-bottom: 1px solid var(--border-dim) !important;
 }
 
-/* --- Typography & Visibility --- */
-.text-muted, small.text-muted {
-    color: #ced4da !important; /* Brighter silver */
+/* Specific Card variants used in templates */
+.card.border-info { border-color: var(--accent-cyan) !important; }
+.card.border-success { border-color: var(--accent-green) !important; }
+.card.border-warning { border-color: var(--accent-amber) !important; }
+.card.border-danger { border-color: var(--accent-red) !important; }
+
+/* --- Typography & Colors --- */
+.text-info { color: var(--accent-cyan) !important; }
+.text-success { color: var(--accent-green) !important; }
+.text-warning { color: var(--accent-amber) !important; }
+.text-danger { color: var(--accent-red) !important; }
+.text-light-gray { color: var(--text-light-gray) !important; }
+
+.summary-label {
+    color: #e0e0e0 !important;
     font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.85rem;
 }
 
 h1, h2, h3, h4, h5, h6, .fw-bold {
     color: var(--text-primary);
 }
 
-.text-info { color: var(--accent-cyan) !important; }
-.text-success { color: var(--accent-green) !important; }
-.text-warning { color: var(--accent-amber) !important; }
-
 /* Glowing financial totals */
-#total-net-worth, #net-income-display {
+#total-net-worth, #net-income-display, #dash-net-worth {
     text-shadow: 0 0 12px rgba(13, 202, 240, 0.3);
 }
 
@@ -72,13 +113,21 @@ h1, h2, h3, h4, h5, h6, .fw-bold {
 }
 
 .table thead th {
-    background-color: #1a1a1a !important;
+    background-color: #3d3d3d !important;
     color: var(--accent-cyan) !important;
     text-transform: uppercase;
     font-size: 0.75rem;
     letter-spacing: 1px;
     border-bottom: 2px solid var(--border-dim) !important;
     padding: 12px;
+}
+
+/* Override for Bootstrap header styles to maintain dark theme consistency */
+.table thead.table-secondary, .table thead.table-success {
+    background-color: #3d3d3d !important;
+}
+.table thead.table-secondary th, .table thead.table-success th {
+    color: var(--accent-cyan) !important;
 }
 
 .table-hover tbody tr:hover {
@@ -89,32 +138,40 @@ h1, h2, h3, h4, h5, h6, .fw-bold {
     border-bottom: 1px solid var(--border-dim);
 }
 
-/* --- Form Elements (Inputs & Selects) --- */
+/* --- Form Elements --- */
 .form-control, .form-select {
     background-color: #000000 !important;
-    border: 1px solid var(--border-dim) !important;
+    border: 1px solid #444 !important;
     color: #ffffff !important;
 }
 
 .form-control:focus, .form-select:focus {
+    background-color: #000 !important;
     border-color: var(--accent-cyan) !important;
-    box-shadow: 0 0 0 0.2rem rgba(13, 202, 240, 0.2) !important;
+    box-shadow: 0 0 8px rgba(13, 202, 240, 0.3) !important;
 }
 
-/* Inline Edit Field (Transparent) */
-.table input[type="text"].bg-transparent:focus {
-    background-color: #111 !important;
-    border-bottom: 1px solid var(--accent-cyan) !important;
-    box-shadow: none !important;
+.input-group-text {
+    background-color: #252525 !important;
+    border: 1px solid #444 !important;
+    color: var(--text-primary) !important;
+}
+
+/* Specific fix for the % labels in Budget Planner */
+.pct-label {
+    color: var(--text-light-gray) !important;
+    font-weight: bold;
+}
+
+/* Placeholder visibility */
+::placeholder {
+    color: #666 !important;
+    opacity: 1;
 }
 
 /* --- Badges & Progress --- */
-.badge.bg-secondary {
-    background-color: #343a40 !important;
-    color: #0dcaf0 !important; /* Cyan text for the type */
-    border: 1px solid #495057;
-    font-size: 0.7rem;
-    text-transform: uppercase;
+.badge.bg-dark {
+    background-color: #000 !important;
 }
 
 .progress {
@@ -122,139 +179,54 @@ h1, h2, h3, h4, h5, h6, .fw-bold {
     border: 1px solid #222;
 }
 
-/* --- Utility --- */
-.date-column {
-    color: var(--accent-amber);
-    font-family: 'Monaco', 'Consolas', monospace;
-    font-size: 0.85rem;
-}
+/* --- Custom Components from Templates --- */
 
-.btn-outline-danger:hover {
-    background-color: #dc3545;
-    color: white;
-}
+/* Pagination */
+.page-link { background-color: #1f1f1f; border-color: #333; color: var(--accent-cyan); transition: 0.2s; }
+.page-link:hover { background-color: #2a2a2a; color: #fff; }
+.page-item.active .page-link { background-color: var(--accent-cyan); border-color: var(--accent-cyan); color: #000; }
+.page-item.disabled .page-link { background-color: #121212; border-color: #222; color: #444; }
 
-.date-display, .last-updated-text {
-    color: #ffc107 !important; /* High-contrast Amber */
-    font-family: 'Courier New', Courier, monospace;
-    font-weight: bold;
-    font-size: 0.85rem;
-}
-
-/* High-Contrast Typography */
-.text-light {
-    color: #f8f9fa !important; /* Brighter white for category names */
-    font-weight: 500;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-}
-
-.text-muted {
-    color: #adb5bd !important; /* Lighter grey so subtext is actually readable */
-}
-
-/* Input Styling for visibility */
-.cat-budget-input {
-    background-color: #1a1a1a !important;
-    color: #0dcaf0 !important; /* Cyan text for the numbers */
+/* Category Select in Tables */
+.cat-select {
+    background-color: #080808 !important;
+    color: var(--accent-cyan) !important;
     border: 1px solid #444 !important;
+    font-size: 0.85rem;
+    padding: 0.25rem 0.5rem;
+}
+
+/* Budget Inputs */
+.cat-budget-input, .savings-budget-input {
+    background-color: #1a1a1a !important;
+    border: 1px solid #555 !important;
     font-weight: bold;
-    font-family: 'Courier New', Courier, monospace; /* Monospace for numbers */
+    text-align: right;
+}
+.cat-budget-input { color: var(--accent-cyan) !important; }
+.savings-budget-input { color: var(--accent-green) !important; }
+
+.cat-budget-input:focus { border-color: var(--accent-cyan) !important; box-shadow: 0 0 8px rgba(13, 202, 240, 0.5); }
+.savings-budget-input:focus { border-color: var(--accent-green) !important; box-shadow: 0 0 8px rgba(46, 204, 113, 0.5); }
+
+/* Scrollbars */
+#category-list::-webkit-scrollbar, #savings-list::-webkit-scrollbar { width: 6px; }
+#category-list::-webkit-scrollbar-thumb, #savings-list::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; }
+
+/* Dashboard Specifics */
+#chart-center-label { 
+    pointer-events: none; 
+    z-index: 10; 
+    text-align: center; 
+    position: absolute;
+    opacity: 0; 
+    transition: opacity 0.2s ease-in;
 }
 
-.cat-budget-input:focus {
-    background-color: #000 !important;
-    border-color: #0dcaf0 !important;
-    box-shadow: 0 0 8px rgba(13, 202, 240, 0.5);
-}
+/* Utility */
+.border-bottom-custom { border-bottom: 1px solid #333 !important; }
 
-/* Group Headers */
-.border-bottom.border-secondary {
-    border-color: #495057 !important; /* Sharper lines between rows */
-}
-
-/* Labels */
-label.text-uppercase {
-    letter-spacing: 1px;
-    font-size: 0.75rem;
-    opacity: 0.9;
-}
-
-/* Input Group Accents */
-.input-group-text {
-    border-color: #444 !important;
-    color: #198754 !important; /* Green € symbol for better visibility */
-    font-weight: bold;
-}
-
-/* Summary Projections Styling */
-#proj-income, #proj-savings, #proj-burn {
-    font-size: 1.2rem;
-    text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
-}
-
-/* Make the labels much brighter than standard muted text */
-.p-3.bg-black.rounded .text-muted {
-    color: #e0e0e0 !important; /* Light grey instead of dark grey */
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-/* High-contrast colors for the Euro values */
-#proj-income { color: #ffffff !important; }    /* Pure White */
-#proj-savings { color: #2ecc71 !important; }   /* Vibrant Green */
-#proj-burn { color: #f1c40f !important; }      /* Vibrant Yellow */
-
-/* Card Header contrast */
-.card h5.text-white {
-    border-bottom: 2px solid #0dcaf0;
-    display: inline-block;
-    padding-bottom: 5px;
-    margin-bottom: 20px;
-    text-transform: uppercase;
-    font-size: 0.9rem;
-    letter-spacing: 2px;
-}
-
-
-/* INPUT HTML */
-/* Forms & Cards Styling */
-.card {
-    background-color: #121212 !important;
-    border: 1px solid #333 !important;
-}
-
-.card-header.bg-primary {
-    background-color: #0d6efd22 !important; /* Subtle blue tint */
-    border-bottom: 2px solid #0d6efd !important;
-    color: #0d6efd !important;
-}
-
-.card-header.bg-info {
-    background-color: #0dcaf022 !important; /* Subtle cyan tint */
-    border-bottom: 2px solid #0dcaf0 !important;
-    color: #0dcaf0 !important;
-}
-
-/* Fix for the "Too Dark" labels */
-.form-label {
-    color: #e0e0e0 !important;
-    font-weight: 500;
-    text-transform: uppercase;
-    font-size: 0.75rem;
-    letter-spacing: 1px;
-    margin-bottom: 0.5rem;
-}
-
-/* Custom Input Focus */
-.form-control:focus, .form-select:focus {
-    background-color: #000 !important;
-    border-color: #0dcaf0 !important;
-    box-shadow: 0 0 10px rgba(13, 202, 240, 0.3);
-}
-
-/* Placeholder visibility */
-::placeholder {
-    color: #666 !important;
-    opacity: 1;
+.border-info-glow {
+    border-color: var(--accent-cyan) !important;
+    box-shadow: 0 0 15px rgba(13, 202, 240, 0.3) !important;
 }

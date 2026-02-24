@@ -1,69 +1,13 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<style>
-    /* High-Contrast Card & Header Styling */
-    .card {
-        background-color: #121212 !important;
-        border: 1px solid #333 !important;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
-    }
-
-    .card-header.bg-primary {
-        background-color: #0d6efd15 !important;
-        border-bottom: 2px solid #0d6efd !important;
-        color: #0d6efd !important;
-    }
-
-    .card-header.bg-info {
-        background-color: #0dcaf015 !important;
-        border-bottom: 2px solid #0dcaf0 !important;
-        color: #0dcaf0 !important;
-    }
-
-    /* Form Labels & Inputs */
-    .form-label {
-        color: #e0e0e0 !important;
-        font-weight: 500;
-        text-transform: uppercase;
-        font-size: 0.75rem;
-        letter-spacing: 1px;
-    }
-
-    .form-control, .form-select {
-        background-color: #1a1a1a !important;
-        color: #ffffff !important;
-        border: 1px solid #444 !important;
-    }
-
-    .form-control:focus, .form-select:focus {
-        border-color: #0dcaf0 !important;
-        box-shadow: 0 0 10px rgba(13, 202, 240, 0.3);
-    }
-
-    /* Split Controls Styling */
-    .input-group-text {
-        background-color: #000 !important;
-        border: 1px solid #444 !important;
-        color: #adb5bd !important;
-    }
-
-    .text-pink { color: #ff69b4 !important; }
-    .text-cyan { color: #0dcaf0 !important; }
-
-    /* Progress Bar for Budget Impact */
-    .progress {
-        background-color: #080808 !important;
-        border: 1px solid #222;
-    }
-</style>
-
 <div class="container-fluid py-4">
     <div class="row">
+        <!-- Manual Expense Entry -->
         <div class="col-md-7 mb-4">
             <div class="card h-100 shadow-lg">
                 <div class="card-header bg-primary py-3">
-                    <h5 class="mb-0 fw-bold"><i class="bi bi-pencil-square me-2"></i>Manual Expense Entry</h5>
+                    <h5 class="mb-0 fw-bold text-white"><i class="bi bi-pencil-square me-2"></i>Manual Expense Entry</h5>
                 </div>
                 <div class="card-body p-4">
                     <form id="manualForm">
@@ -75,7 +19,7 @@
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Category</label>
                                 <select id="expCat" class="form-select" onchange="calculateImpact()">
-                                    {% for cat in categories %}
+                                    {% for cat in expense_categories %}
                                     <option value="{{ cat.id }}">{{ cat.name }}</option>
                                     {% endfor %}
                                 </select>
@@ -117,7 +61,7 @@
                                 </div>
                                 <div class="col-6">
                                     <div class="input-group">
-                                        <span class="input-group-text text-pink">Joules</span>
+                                        <span class="input-group-text text-pink" style="color: #ff69b4 !important;">Joules</span>
                                         <input type="number" id="splitJoules" class="form-control text-center" value="50" oninput="syncSplit('joules')">
                                         <span class="input-group-text">%</span>
                                     </div>
@@ -152,30 +96,57 @@
             </div>
         </div>
 
+        <!-- Log a Saving/Investment -->
         <div class="col-md-5 mb-4">
-            <div class="card h-100 shadow-lg border-0">
-                <div class="card-header bg-info py-3 text-white">
-                    <h5 class="mb-0 fw-bold"><i class="bi bi-file-earmark-arrow-up me-2"></i>Import Splitwise CSV</h5>
+            <div class="card h-100 shadow-lg mb-4">
+                <div class="card-header bg-success py-3">
+                    <h5 class="mb-0 fw-bold text-white"><i class="bi bi-piggy-bank me-2"></i>Log a Saving/Investment</h5>
                 </div>
-                <div class="card-body d-flex flex-column justify-content-center p-4">
-                    <div class="text-center mb-4">
-                        <i class="bi bi-cloud-upload text-info opacity-25" style="font-size: 4rem;"></i>
-                        <h6 class="text-white mt-3">Bulk Data Sync</h6>
-                        <p class="text-muted small">Upload your latest Splitwise CSV export. The engine will skip duplicates automatically.</p>
-                    </div>
-                    <div id="uploadStatus" class="mb-3 text-center small"></div>
-                    <input type="file" id="csvFile" class="form-control bg-dark text-white border-secondary mb-3">
-                    <button type="button" onclick="uploadCSV()" class="btn btn-outline-info fw-bold py-2 mb-4">
-                        PROCESS FILE
-                    </button>
-                    
-                    <hr class="border-secondary mb-4">
-                    
+                <div class="card-body p-4">
+                    <form id="savingsForm">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Date</label>
+                                <input type="date" id="savDate" class="form-control" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Category</label>
+                                <select id="savCat" class="form-select">
+                                    {% for cat in savings_categories %}
+                                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Description (Optional)</label>
+                            <input type="text" id="savDesc" class="form-control" placeholder="e.g. Monthly contribution">
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">Amount (€)</label>
+                            <div class="input-group input-group-lg">
+                                <span class="input-group-text text-success fw-bold">€</span>
+                                <input type="number" step="0.01" id="savAmt" class="form-control" placeholder="0.00" required>
+                            </div>
+                        </div>
+
+                        <button type="button" onclick="saveSaving()" class="btn btn-success w-100 fw-bold py-3">
+                            <i class="bi bi-cloud-arrow-up-fill me-2"></i>LOG SAVING
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Sync Status & API -->
+            <div class="card shadow-lg border-0 bg-dark mt-4">
+                <div class="card-body p-4">
                     <div class="text-center mb-3">
-                        <h6 class="text-info fw-bold">Splitwise API Direct Sync</h6>
-                        <p class="text-muted small">Sync directly via the official API using your configured credentials.</p>
+                        <h6 class="text-info fw-bold">Splitwise API Sync</h6>
+                        <p class="text-muted small">Fetch latest data from Splitwise.</p>
                     </div>
-                    <button type="button" id="apiSyncBtn" onclick="syncSplitwise()" class="btn btn-info fw-bold py-2">
+                    <button type="button" id="apiSyncBtn" onclick="syncSplitwise()" class="btn btn-outline-info w-100 fw-bold py-2">
                         <i class="bi bi-arrow-repeat me-2"></i>START SYNC
                     </button>
                     <div id="apiSyncStatus" class="mt-3 text-center small"></div>
@@ -188,37 +159,30 @@
 <script>
 let budgetTargets = {};
 
-// API Sync Function
 async function syncSplitwise() {
     const btn = document.getElementById('apiSyncBtn');
     const status = document.getElementById('apiSyncStatus');
-    
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>SYNCING...';
-    status.innerHTML = '<span class="text-info">Connecting to Splitwise API...</span>';
-
     try {
         const res = await fetch('/api/sync_splitwise', { method: 'POST' });
         const data = await res.json();
-        
         if (res.ok) {
-            status.innerHTML = `<span class="text-success fw-bold"><i class="bi bi-check-circle me-1"></i> ${data.status}</span>`;
-            alert("Splitwise API Sync Complete!");
+            status.innerHTML = `<span class="text-success fw-bold"><i class="bi bi-check-circle"></i> ${data.status}</span>`;
         } else {
             status.innerHTML = `<span class="text-danger">Error: ${data.error}</span>`;
         }
     } catch (err) {
-        status.innerHTML = `<span class="text-danger">Sync failed. Check connection.</span>`;
-        console.error(err);
+        status.innerHTML = `<span class="text-danger">Sync failed.</span>`;
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-arrow-repeat me-2"></i>START SYNC';
     }
 }
 
-// 1. Initial Load: Fetch Budgets for live calculations
 document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('expDate').valueAsDate = new Date();
+    document.getElementById('savDate').valueAsDate = new Date();
     
     // Fetch budget targets for Gus (user_id 0) to show impact
     const res = await fetch(`/api/budget/list?user_id=0`);
@@ -226,42 +190,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     data.forEach(item => { budgetTargets[item.id] = item.amount; });
 });
 
-// 2. CSV Upload Function (Fixed ReferenceError)
-async function uploadCSV() {
-    const fileInput = document.getElementById('csvFile');
-    const statusDiv = document.getElementById('uploadStatus');
-    
-    if (!fileInput.files.length) {
-        statusDiv.innerHTML = '<span class="text-warning">Please select a file.</span>';
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-
-    try {
-        statusDiv.innerHTML = '<div class="spinner-border text-info spinner-border-sm"></div> Processing...';
-        
-        const response = await fetch('/api/upload_csv', {
-            method: 'POST',
-            body: formData
-        });
-
-        const result = await response.json();
-        
-        if (response.ok) {
-            statusDiv.innerHTML = `<span class="text-success"><i class="bi bi-check-circle"></i> ${result.status}</span>`;
-            fileInput.value = ''; // Clear file after upload
-        } else {
-            statusDiv.innerHTML = `<span class="text-danger">Error: ${result.error}</span>`;
-        }
-    } catch (error) {
-        statusDiv.innerHTML = '<span class="text-danger">Upload failed. Check server.</span>';
-        console.error("Upload Error:", error);
-    }
-}
-
-// 3. Split Logic Syncing
 function setSplit(gus, joules) {
     document.getElementById('splitGus').value = gus;
     document.getElementById('splitJoules').value = joules;
@@ -272,7 +200,6 @@ function setSplit(gus, joules) {
 function syncSplit(origin) {
     let gusInput = document.getElementById('splitGus');
     let joulesInput = document.getElementById('splitJoules');
-    
     if (origin === 'gus') {
         let val = Math.min(Math.max(parseFloat(gusInput.value) || 0, 0), 100);
         gusInput.value = val;
@@ -292,15 +219,12 @@ function updateSplitLabel() {
     document.getElementById('split-label').innerText = `${gus}/${joules} Split`;
 }
 
-// 4. Budget Impact Visualization
 function calculateImpact() {
     const totalAmount = parseFloat(document.getElementById('expAmt').value) || 0;
     const gusShare = parseFloat(document.getElementById('splitGus').value) / 100;
     const myAmount = totalAmount * gusShare;
-    
     const catId = document.getElementById('expCat').value;
     const target = budgetTargets[catId] || 0;
-
     const bar = document.getElementById('impact-bar');
     const label = document.getElementById('impact-percent');
 
@@ -308,7 +232,6 @@ function calculateImpact() {
         const pct = (myAmount / target) * 100;
         bar.style.width = Math.min(pct, 100) + '%';
         label.innerText = pct.toFixed(1) + '%';
-        
         if (pct > 80) bar.className = "progress-bar bg-danger";
         else if (pct > 40) bar.className = "progress-bar bg-warning";
         else bar.className = "progress-bar bg-info";
@@ -318,7 +241,6 @@ function calculateImpact() {
     }
 }
 
-// 5. Manual Submission
 async function saveExpense() {
     const catSelect = document.getElementById('expCat');
     const pushSwitch = document.getElementById('pushToSplitwise');
@@ -334,23 +256,18 @@ async function saveExpense() {
         split_joules: parseFloat(document.getElementById('splitJoules').value)
     };
 
-    if (isNaN(payload.amount)) {
-        alert("Please enter a valid amount.");
-        return;
-    }
+    if (isNaN(payload.amount)) { alert("Please enter a valid amount."); return; }
 
     try {
         saveBtn.disabled = true;
-        
-        // --- STEP 1: PUSH TO SPLITWISE (IF SELECTED) ---
         if (pushSwitch.checked) {
             const swRes = await fetch('/api/expense/splitwise', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            const swData = await swRes.json();
             if (!swRes.ok) {
+                const swData = await swRes.json();
                 if (!confirm(`Splitwise Push Failed: ${swData.error}. Save locally anyway?`)) {
                     saveBtn.disabled = false;
                     return;
@@ -358,7 +275,6 @@ async function saveExpense() {
             }
         }
 
-        // --- STEP 2: SAVE LOCALLY ---
         const res = await fetch('/api/expense/manual', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -369,15 +285,43 @@ async function saveExpense() {
             alert("Transaction Recorded Successfully!");
             document.getElementById('manualForm').reset();
             document.getElementById('expDate').valueAsDate = new Date();
-            setSplit(50, 50); // Reset split to default
+            setSplit(50, 50);
         } else {
             alert("Error saving transaction locally.");
         }
     } catch (err) {
-        console.error("Save Error:", err);
         alert("A critical error occurred while saving.");
     } finally {
         saveBtn.disabled = false;
+    }
+}
+
+async function saveSaving() {
+    const payload = {
+        date: document.getElementById('savDate').value,
+        description: document.getElementById('savDesc').value,
+        amount: parseFloat(document.getElementById('savAmt').value),
+        category_id: document.getElementById('savCat').value
+    };
+
+    if (isNaN(payload.amount) || payload.amount <= 0) {
+        alert("Please enter a valid amount.");
+        return;
+    }
+
+    const res = await fetch('/api/savings/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    if (res.ok) {
+        alert("Saving/Investment Recorded!");
+        document.getElementById('savingsForm').reset();
+        document.getElementById('savDate').valueAsDate = new Date();
+    } else {
+        const err = await res.json();
+        alert("Error: " + err.error);
     }
 }
 </script>

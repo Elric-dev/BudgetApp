@@ -30,42 +30,6 @@
     <ul class="pagination justify-content-center" id="pagination-controls"></ul>
 </nav>
 
-<style>
-    .date-text {
-        color: #0dcaf0 !important;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        font-weight: 500;
-        white-space: nowrap;
-    }
-    
-    .table-hover tbody tr:hover {
-        background-color: rgba(255, 255, 255, 0.05);
-    }
-
-    /* Category Dropdown Styling */
-    .cat-select {
-        background-color: #080808 !important;
-        color: #0dcaf0 !important;
-        border: 1px solid #444 !important;
-        font-size: 0.85rem;
-        padding: 0.25rem 0.5rem;
-    }
-
-    [contenteditable="true"]:focus {
-        outline: 2px solid #0dcaf0;
-        background: rgba(13, 202, 240, 0.1);
-        padding: 2px 5px;
-        border-radius: 4px;
-    }
-
-    .page-link { background-color: #1f1f1f; border-color: #333; color: #0dcaf0; transition: 0.2s; }
-    .page-link:hover { background-color: #2a2a2a; color: #fff; }
-    .page-item.active .page-link { background-color: #0dcaf0; border-color: #0dcaf0; color: #000; }
-    .page-item.disabled .page-link { background-color: #121212; border-color: #222; color: #444; }
-</style>
-
-
-
 <script>
 let currentPage = 1;
 let categoriesList = []; // Global store for category dropdown
@@ -108,7 +72,7 @@ async function loadTable(page = 1) {
 
     return `
     <tr id="row-${t.id}">
-        <td class="date-text">${t.clean_date}</td>
+        <td class="text-info fw-bold">${t.clean_date}</td>
         <td>
             <select class="form-select form-select-sm cat-select" id="cat-${t.id}">
                 ${catOptions}
