@@ -13,12 +13,12 @@
                     <form id="manualForm">
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Date</label>
-                                <input type="date" id="expDate" class="form-control" required>
+                                <label class="form-label text-light-gray fw-bold">Date</label>
+                                <input type="date" id="expDate" class="form-control bg-black text-white border-secondary" required>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Category</label>
-                                <select id="expCat" class="form-select" onchange="calculateImpact()">
+                                <label class="form-label text-light-gray fw-bold">Category</label>
+                                <select id="expCat" class="form-select bg-black text-white border-secondary" onchange="calculateImpact()">
                                     {% for cat in expense_categories %}
                                     <option value="{{ cat.id }}">{{ cat.name }}</option>
                                     {% endfor %}
@@ -27,20 +27,20 @@
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Description</label>
-                            <input type="text" id="expDesc" class="form-control" placeholder="e.g. Weekly Groceries" required>
+                            <label class="form-label text-light-gray fw-bold">Description</label>
+                            <input type="text" id="expDesc" class="form-control bg-black text-white border-secondary" placeholder="e.g. Weekly Groceries" required>
                         </div>
 
                         <div class="mb-4">
-                            <label class="form-label">Total Amount (€)</label>
+                            <label class="form-label text-light-gray fw-bold">Total Amount (€)</label>
                             <div class="input-group input-group-lg">
-                                <span class="input-group-text text-success fw-bold">€</span>
-                                <input type="number" step="0.01" id="expAmt" class="form-control" placeholder="0.00" oninput="calculateImpact()" required>
+                                <span class="input-group-text bg-dark border-secondary text-success fw-bold">€</span>
+                                <input type="number" step="0.01" id="expAmt" class="form-control bg-black text-white border-secondary" placeholder="0.00" oninput="calculateImpact()" required>
                             </div>
                         </div>
 
                         <div class="p-3 rounded border border-secondary mb-4 bg-black">
-                            <label class="form-label d-flex justify-content-between">
+                            <label class="form-label d-flex justify-content-between text-light-gray fw-bold">
                                 Cost Split Logic
                                 <span class="text-info fw-bold" id="split-label">50/50 Split</span>
                             </label>
@@ -54,27 +54,27 @@
                             <div class="row g-2">
                                 <div class="col-6">
                                     <div class="input-group">
-                                        <span class="input-group-text text-cyan">Gus</span>
-                                        <input type="number" id="splitGus" class="form-control text-center" value="50" oninput="syncSplit('gus')">
-                                        <span class="input-group-text">%</span>
+                                        <span class="input-group-text bg-dark border-secondary text-cyan fw-bold">Gus</span>
+                                        <input type="number" id="splitGus" class="form-control bg-black text-white border-secondary text-center" value="50" oninput="syncSplit('gus')">
+                                        <span class="input-group-text bg-dark border-secondary text-white">%</span>
                                     </div>
                                 </div>
                                 <div class="col-6">
                                     <div class="input-group">
-                                        <span class="input-group-text text-pink" style="color: #ff69b4 !important;">Joules</span>
-                                        <input type="number" id="splitJoules" class="form-control text-center" value="50" oninput="syncSplit('joules')">
-                                        <span class="input-group-text">%</span>
+                                        <span class="input-group-text bg-dark border-secondary text-pink fw-bold" style="color: #e83e8c !important;">Joules</span>
+                                        <input type="number" id="splitJoules" class="form-control bg-black text-white border-secondary text-center" value="50" oninput="syncSplit('joules')">
+                                        <span class="input-group-text bg-dark border-secondary text-white">%</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="mb-4">
-                            <label class="form-label d-flex justify-content-between">
+                            <label class="form-label d-flex justify-content-between text-light-gray fw-bold">
                                 Individual Budget Impact
                                 <span id="impact-percent" class="text-info">0%</span>
                             </label>
-                            <div class="progress" style="height: 8px;">
+                            <div class="progress" style="height: 8px; background-color: #000;">
                                 <div id="impact-bar" class="progress-bar bg-info" style="width: 0%"></div>
                             </div>
                         </div>
@@ -96,43 +96,104 @@
             </div>
         </div>
 
-        <!-- Log a Saving/Investment -->
-        <div class="col-md-5 mb-4">
-            <div class="card h-100 shadow-lg mb-4">
+        <div class="col-md-5">
+            <!-- Manual Income Entry -->
+            <div class="card shadow-lg mb-4">
+                <div class="card-header bg-info py-3">
+                    <h5 class="mb-0 fw-bold text-white"><i class="bi bi-cash-stack me-2"></i>Log One-Off Income</h5>
+                </div>
+                <div class="card-body p-4">
+                    <form id="incomeForm">
+                        <div class="mb-3">
+                            <label class="form-label text-light-gray fw-bold">Belongs to</label>
+                            <select id="incUser" class="form-select bg-black text-white border-secondary">
+                                {% for user in users %}
+                                <option value="{{ user.user_id }}">{{ user.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label text-light-gray fw-bold">Date</label>
+                                <input type="date" id="incDate" class="form-control bg-black text-white border-secondary" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label text-light-gray fw-bold">Type</label>
+                                <select id="incCat" class="form-select bg-black text-white border-secondary">
+                                    {% for cat in income_categories %}
+                                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                                    {% endfor %}
+                                    {% if not income_categories %}
+                                    <option value="" disabled>No categories found</option>
+                                    {% endif %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-light-gray fw-bold">Source/Description</label>
+                            <input type="text" id="incDesc" class="form-control bg-black text-white border-secondary" placeholder="e.g. Tax Refund, Gift" required>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label text-light-gray fw-bold">Amount (€)</label>
+                            <div class="input-group input-group-lg">
+                                <span class="input-group-text bg-dark border-secondary text-success fw-bold">€</span>
+                                <input type="number" step="0.01" id="incAmt" class="form-control bg-black text-white border-secondary" placeholder="0.00" required>
+                            </div>
+                        </div>
+                        <button type="button" id="saveIncBtn" onclick="saveIncomeEntry()" class="btn btn-info w-100 fw-bold py-3 text-white">
+                            <i class="bi bi-plus-circle-fill me-2"></i>RECORD INCOME
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Log a Saving/Investment -->
+            <div class="card shadow-lg mb-4">
                 <div class="card-header bg-success py-3">
                     <h5 class="mb-0 fw-bold text-white"><i class="bi bi-piggy-bank me-2"></i>Log a Saving/Investment</h5>
                 </div>
                 <div class="card-body p-4">
                     <form id="savingsForm">
+                        <div class="mb-3">
+                            <label class="form-label text-light-gray fw-bold">Belongs to</label>
+                            <select id="savUser" class="form-select bg-black text-white border-secondary">
+                                {% for user in users %}
+                                <option value="{{ user.user_id }}">{{ user.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Date</label>
-                                <input type="date" id="savDate" class="form-control" required>
+                                <label class="form-label text-light-gray fw-bold">Date</label>
+                                <input type="date" id="savDate" class="form-control bg-black text-white border-secondary" required>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <label class="form-label">Category</label>
-                                <select id="savCat" class="form-select">
+                                <label class="form-label text-light-gray fw-bold">Category</label>
+                                <select id="savCat" class="form-select bg-black text-white border-secondary">
                                     {% for cat in savings_categories %}
                                     <option value="{{ cat.id }}">{{ cat.name }}</option>
                                     {% endfor %}
+                                    {% if not savings_categories %}
+                                    <option value="" disabled>No categories found</option>
+                                    {% endif %}
                                 </select>
                             </div>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label">Description (Optional)</label>
-                            <input type="text" id="savDesc" class="form-control" placeholder="e.g. Monthly contribution">
+                            <label class="form-label text-light-gray fw-bold">Description (Optional)</label>
+                            <input type="text" id="savDesc" class="form-control bg-black text-white border-secondary" placeholder="e.g. Monthly contribution">
                         </div>
 
                         <div class="mb-4">
-                            <label class="form-label">Amount (€)</label>
+                            <label class="form-label text-light-gray fw-bold">Amount (€)</label>
                             <div class="input-group input-group-lg">
-                                <span class="input-group-text text-success fw-bold">€</span>
-                                <input type="number" step="0.01" id="savAmt" class="form-control" placeholder="0.00" required>
+                                <span class="input-group-text bg-dark border-secondary text-success fw-bold">€</span>
+                                <input type="number" step="0.01" id="savAmt" class="form-control bg-black text-white border-secondary" placeholder="0.00" required>
                             </div>
                         </div>
 
-                        <button type="button" onclick="saveSaving()" class="btn btn-success w-100 fw-bold py-3">
+                        <button type="button" id="saveSavBtn" onclick="saveSaving()" class="btn btn-success w-100 fw-bold py-3">
                             <i class="bi bi-cloud-arrow-up-fill me-2"></i>LOG SAVING
                         </button>
                     </form>
@@ -183,6 +244,7 @@ async function syncSplitwise() {
 document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('expDate').valueAsDate = new Date();
     document.getElementById('savDate').valueAsDate = new Date();
+    document.getElementById('incDate').valueAsDate = new Date();
     
     // Fetch budget targets for Gus (user_id 0) to show impact
     const res = await fetch(`/api/budget/list?user_id=0`);
@@ -297,7 +359,9 @@ async function saveExpense() {
 }
 
 async function saveSaving() {
+    const saveBtn = document.getElementById('saveSavBtn');
     const payload = {
+        user_id: document.getElementById('savUser').value,
         date: document.getElementById('savDate').value,
         description: document.getElementById('savDesc').value,
         amount: parseFloat(document.getElementById('savAmt').value),
@@ -309,19 +373,64 @@ async function saveSaving() {
         return;
     }
 
-    const res = await fetch('/api/savings/manual', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
+    try {
+        saveBtn.disabled = true;
+        const res = await fetch('/api/savings/manual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
-    if (res.ok) {
-        alert("Saving/Investment Recorded!");
-        document.getElementById('savingsForm').reset();
-        document.getElementById('savDate').valueAsDate = new Date();
-    } else {
-        const err = await res.json();
-        alert("Error: " + err.error);
+        if (res.ok) {
+            alert("Saving/Investment Recorded!");
+            document.getElementById('savingsForm').reset();
+            document.getElementById('savDate').valueAsDate = new Date();
+        } else {
+            const err = await res.json();
+            alert("Error: " + err.error);
+        }
+    } catch (err) {
+        alert("A critical error occurred while saving.");
+    } finally {
+        saveBtn.disabled = false;
+    }
+}
+
+async function saveIncomeEntry() {
+    const saveBtn = document.getElementById('saveIncBtn');
+    const payload = {
+        user_id: document.getElementById('incUser').value,
+        date: document.getElementById('incDate').value,
+        description: document.getElementById('incDesc').value,
+        amount: parseFloat(document.getElementById('incAmt').value),
+        category_id: document.getElementById('incCat').value
+    };
+
+    if (isNaN(payload.amount) || payload.amount <= 0) {
+        alert("Please enter a valid amount.");
+        return;
+    }
+
+    try {
+        saveBtn.disabled = true;
+        const res = await fetch('/api/income/manual', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            alert("One-off Income Recorded!");
+            document.getElementById('incomeForm').reset();
+            document.getElementById('incDate').valueAsDate = new Date();
+        } else {
+            const err = await res.json();
+            alert("Error: " + err.error);
+        }
+    } catch (err) {
+        alert("A critical error occurred while saving.");
+    } finally {
+        saveBtn.disabled = false;
     }
 }
 </script>

@@ -1,8 +1,8 @@
 -- BudgetApp Consolidated Database Schema
 -- Optimized for Raspberry Pi / Remote Server installation and idempotency
 
-CREATE DATABASE IF NOT EXISTS budget_db;
-USE budget_db;
+CREATE DATABASE IF NOT EXISTS budget_tracker;
+USE budget_tracker;
 
 -- 1. Users Table
 CREATE TABLE IF NOT EXISTS users (
@@ -54,7 +54,8 @@ INSERT IGNORE INTO categories (name, parent_name) VALUES
 ('Pension', 'Savings'),
 ('Other Savings', 'Savings'),
 ('Home Office', 'Work'),
-('Gifts', 'Personal');
+('Gifts', 'Personal'),
+('One-Off Income', 'Income');
 
 -- 3. Transactions Table
 CREATE TABLE IF NOT EXISTS transactions (

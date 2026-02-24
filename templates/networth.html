@@ -228,7 +228,7 @@ async function loadNetWorth() {
     // 4. Fetch History for Chart
     const hRes = await fetch(`/api/finance/history?user_id=${userId}`);
     const hData = await hRes.json();
-    if(hData.dates.length > 0) renderChart(hData);
+    renderChart(hData);
 }
 
 async function loadIncome() {
@@ -325,6 +325,23 @@ async function saveIncome() {
 function renderChart(data) {
     const ctx = document.getElementById('netWorthChart').getContext('2d');
     if (nwChart) nwChart.destroy();
+
+    if (!data.dates || data.dates.length === 0) {
+        nwChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { 
+                    title: { display: true, text: 'No historical data found for this profile', color: '#666' },
+                    legend: { display: false }
+                },
+                scales: { x: { display: false }, y: { display: false } }
+            }
+        });
+        return;
+    }
+
     nwChart = new Chart(ctx, {
         type: 'line',
         data: {

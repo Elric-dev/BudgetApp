@@ -141,24 +141,40 @@ def dashboard_summary():
     cursor = get_db().cursor(dictionary=True)
     
     try:
+        # Get One-Off Income Category ID
+        cursor.execute("SELECT id FROM categories WHERE name = 'One-Off Income'")
+        one_off_cat = cursor.fetchone()
+        one_off_cat_id = one_off_cat['id'] if one_off_cat else -1
+
         if user_id == 2: # Household
             cursor.execute("SELECT SUM(current_value) as nw FROM assets")
             res = cursor.fetchone()
             nw = res['nw'] if res and res['nw'] else 0
             
+            # Recurring Income
             cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams")
             res = cursor.fetchone()
-            inc = res['inc'] if res and res['inc'] else 0
+            recurring_inc = res['inc'] if res and res['inc'] else 0
             
+            # One-off Income (recorded as negative total_amount in transactions)
+            cursor.execute("""
+                SELECT SUM(ABS(total_amount)) as one_off 
+                FROM transactions 
+                WHERE category_id = %s AND MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
+            """, (one_off_cat_id,))
+            res = cursor.fetchone()
+            one_off_inc = res['one_off'] if res and res['one_off'] else 0
+            
+            inc = recurring_inc + one_off_inc
+
             cursor.execute("""
                 SELECT SUM(Gus_share + Joules_share) as spent 
                 FROM transactions 
-                WHERE MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
-            """)
+                WHERE category_id != %s AND MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
+            """, (one_off_cat_id,))
             res = cursor.fetchone()
             spent = res['spent'] if res and res['spent'] else 0
             
-            # Household goals are average or sum? Let's use Gus's settings as default or 20/50
             cursor.execute("SELECT * FROM user_settings WHERE user_id = 0")
             settings = cursor.fetchone()
         else: # Gus (0) or Joules (1)
@@ -166,16 +182,29 @@ def dashboard_summary():
             res = cursor.fetchone()
             nw = res['nw'] if res and res['nw'] else 0
             
+            # Recurring Income
             cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams WHERE user_id = %s", (user_id,))
             res = cursor.fetchone()
-            inc = res['inc'] if res and res['inc'] else 0
+            recurring_inc = res['inc'] if res and res['inc'] else 0
             
+            # One-off Income
             share_col = "Gus_share" if user_id == 0 else "Joules_share"
+            cursor.execute(f"""
+                SELECT SUM(ABS({share_col})) as one_off 
+                FROM transactions 
+                WHERE user_id = %s AND category_id = %s AND MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
+            """, (user_id, one_off_cat_id))
+            res = cursor.fetchone()
+            one_off_inc = res['one_off'] if res and res['one_off'] else 0
+            
+            inc = recurring_inc + one_off_inc
+            
             cursor.execute(f"""
                 SELECT SUM({share_col}) as spent 
                 FROM transactions 
-                WHERE MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
-            """)
+                WHERE category_id != %s AND (user_id = %s OR ({share_col} > 0 AND user_id != %s))
+                AND MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
+            """, (one_off_cat_id, user_id, user_id))
             res = cursor.fetchone()
             spent = res['spent'] if res and res['spent'] else 0
             
@@ -203,6 +232,11 @@ def get_parent_spending():
     
     date_clause, _ = get_date_filter(period)
     
+    # Get One-Off Income Category ID to exclude
+    cursor.execute("SELECT id FROM categories WHERE name = 'One-Off Income'")
+    one_off_cat = cursor.fetchone()
+    one_off_cat_id = one_off_cat['id'] if one_off_cat else -1
+
     if user_id == 2: # Household
         share_calc = "SUM(t.Gus_share + t.Joules_share)"
         user_filter = "(t.Gus_share > 0 OR t.Joules_share > 0)"
@@ -219,10 +253,10 @@ def get_parent_spending():
                    {share_calc} as total
             FROM transactions t
             LEFT JOIN categories c ON t.category_id = c.id
-            WHERE {user_filter} {date_clause}
+            WHERE {user_filter} AND t.category_id != %s {date_clause}
             GROUP BY parent_class ORDER BY total DESC
         """
-        cursor.execute(query)
+        cursor.execute(query, (one_off_cat_id,))
         rows = cursor.fetchall()
         return jsonify({"labels": [r['parent_class'] for r in rows], "values": [float(r['total']) for r in rows]})
     finally:
@@ -359,44 +393,76 @@ def get_uncategorized():
 def input_page():
     db = get_db()
     
+    # Fetch all users
+    user_cursor = db.cursor(dictionary=True)
+    user_cursor.execute("SELECT user_id, name FROM users WHERE user_id IN (0, 1) ORDER BY user_id ASC")
+    users = user_cursor.fetchall()
+    user_cursor.close()
+
     # Fetch Expense Categories
     exp_cursor = db.cursor(dictionary=True)
-    exp_cursor.execute("SELECT id, name FROM categories WHERE parent_name != 'Savings' OR parent_name IS NULL ORDER BY name ASC")
+    exp_cursor.execute("""
+        SELECT id, name FROM categories 
+        WHERE parent_name NOT IN ('Savings', 'Income') 
+        OR parent_name IS NULL 
+        ORDER BY name ASC
+    """)
     expense_cats = exp_cursor.fetchall()
     exp_cursor.close()
 
-    # Fetch Savings Categories
+    # Fetch Savings Categories (with fallback)
     sav_cursor = db.cursor(dictionary=True)
     sav_cursor.execute("SELECT id, name FROM categories WHERE parent_name = 'Savings' ORDER BY name ASC")
     savings_cats = sav_cursor.fetchall()
+    if not savings_cats:
+        sav_cursor.execute("SELECT id, name FROM categories WHERE parent_name = 'Life' ORDER BY name ASC")
+        savings_cats = sav_cursor.fetchall()
     sav_cursor.close()
 
-    return render_template('input.html', expense_categories=expense_cats, savings_categories=savings_cats)
+    # Fetch Income Categories (with fallback)
+    inc_cursor = db.cursor(dictionary=True)
+    inc_cursor.execute("SELECT id, name FROM categories WHERE parent_name = 'Income' OR name LIKE '%%Income%%' ORDER BY name ASC")
+    income_cats = inc_cursor.fetchall()
+    if not income_cats:
+        inc_cursor.execute("SELECT id, name FROM categories WHERE parent_name = 'Uncategorized' ORDER BY name ASC")
+        income_cats = inc_cursor.fetchall()
+    inc_cursor.close()
 
-@app.route('/api/expense/manual', methods=['POST'])
+    return render_template('input.html', 
+                           users=users,
+                           expense_categories=expense_cats, 
+                           savings_categories=savings_cats,
+                           income_categories=income_cats)
+
+@app.route('/api/income/manual', methods=['POST'])
 @login_required
-def save_manual_expense():
+def save_manual_income_entry():
     data = request.json
     db = get_db()
     cursor = db.cursor()
     try:
+        total = float(data['amount'])
+        user_id = int(data.get('user_id', current_user.id))
+        
+        # Create a unique hash
         mock_row = {'Date': data.get('date'), 'Description': data.get('description'),
-                    'Cost': data.get('amount'), 'Category': data.get('category_name')}
+                    'Cost': -total, 'Category': 'Income'}
         t_hash = generate_transaction_hash(mock_row)
+        
         query = """
             INSERT INTO transactions (date, description, total_amount, user_id, category_id, payer_id, 
             Gus_share, Joules_share, is_split, transaction_hash)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        total = float(data['amount'])
-        g_share = total * (float(data['split_gus']) / 100)
-        j_share = total * (float(data['split_joules']) / 100)
-        cursor.execute(query, (data['date'], data['description'], total, current_user.id, int(data['category_id']), 
-                               current_user.id, g_share, j_share, 1 if (g_share > 0 and j_share > 0) else 0, t_hash))
+        g_share = -total if user_id == 0 else 0
+        j_share = -total if user_id == 1 else 0
+
+        cursor.execute(query, (data['date'], data['description'], -total, user_id, int(data['category_id']), 
+                               user_id, g_share, j_share, 0, t_hash))
         db.commit()
         return jsonify({"status": "success"}), 201
     except Exception as e:
-        logger.error(f"Error saving manual expense: {e}")
+        logger.error(f"Error saving manual income: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()
@@ -408,12 +474,13 @@ def save_manual_saving():
     db = get_db()
     cursor = db.cursor()
     try:
+        user_id = int(data.get('user_id', current_user.id))
         query = """
             INSERT INTO savings (user_id, date, category_id, amount, description) 
             VALUES (%s, %s, %s, %s, %s)
         """
         cursor.execute(query, (
-            current_user.id,
+            user_id,
             data['date'],
             data['category_id'],
             data['amount'],
@@ -421,6 +488,10 @@ def save_manual_saving():
         ))
         db.commit()
         return jsonify({"status": "success"}), 201
+    except mysql.connector.errors.ProgrammingError as e:
+        if e.errno == 1146:
+            return jsonify({"error": "The 'savings' table is missing. Please run schema.sql to initialize it."}), 500
+        return jsonify({"error": str(e)}), 500
     except Exception as e:
         logger.error(f"Error saving manual saving/investment: {e}")
         return jsonify({"error": str(e)}), 500
@@ -903,17 +974,17 @@ def take_financial_snapshot():
     cursor = db.cursor(dictionary=True)
     
     try:
-        # 1. Calculate Total Net Worth
+        # 1. Calculate Total Net Worth for current user
         cursor.execute("SELECT SUM(current_value) as nw FROM assets WHERE user_id = %s", (user_id,))
         nw_res = cursor.fetchone()
         nw_total = float(nw_res['nw'] or 0)
         
-        # 2. Calculate Total Net Income
+        # 2. Calculate Total Net Income for current user
         cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams WHERE user_id = %s", (user_id,))
         inc_res = cursor.fetchone()
         inc_total = float(inc_res['inc'] or 0)
         
-        # 3. Save to History (Using ON DUPLICATE KEY UPDATE to allow same-day overwrites)
+        # 3. Save to History for current user
         cursor.execute("""
             INSERT INTO net_worth_history (user_id, snapshot_date, total_value) 
             VALUES (%s, %s, %s)
@@ -925,11 +996,222 @@ def take_financial_snapshot():
             VALUES (%s, %s, %s)
             ON DUPLICATE KEY UPDATE total_net_income = VALUES(total_net_income)
         """, (user_id, today, inc_total))
+
+        # --- SMEARING LOGIC FOR HOUSEHOLD VIEW ---
+        other_user_id = 1 if user_id == 0 else 0
+        
+        # Ensure other user has records for today (LOF)
+        # Net Worth
+        cursor.execute("SELECT id FROM net_worth_history WHERE user_id = %s AND snapshot_date = %s", (other_user_id, today))
+        if not cursor.fetchone():
+            cursor.execute("""
+                SELECT total_value FROM net_worth_history 
+                WHERE user_id = %s AND snapshot_date < %s 
+                ORDER BY snapshot_date DESC LIMIT 1
+            """, (other_user_id, today))
+            prev = cursor.fetchone()
+            if prev:
+                cursor.execute("INSERT INTO net_worth_history (user_id, snapshot_date, total_value) VALUES (%s, %s, %s)", 
+                               (other_user_id, today, float(prev['total_value'])))
+
+        # Income
+        cursor.execute("SELECT id FROM income_history WHERE user_id = %s AND snapshot_date = %s", (other_user_id, today))
+        if not cursor.fetchone():
+            cursor.execute("""
+                SELECT total_net_income FROM income_history 
+                WHERE user_id = %s AND snapshot_date < %s 
+                ORDER BY snapshot_date DESC LIMIT 1
+            """, (other_user_id, today))
+            prev = cursor.fetchone()
+            if prev:
+                cursor.execute("INSERT INTO income_history (user_id, snapshot_date, total_net_income) VALUES (%s, %s, %s)", 
+                               (other_user_id, today, float(prev['total_net_income'])))
         
         db.commit()
         return jsonify({"status": "success", "nw": nw_total, "inc": inc_total})
     except Exception as e:
         logger.error(f"Snapshot Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+
+@app.route('/setup-db')
+@login_required
+def setup_db():
+    """Temporary route to ensure database consistency for Raspberry Pi migration."""
+    if current_user.name != 'Gus':
+        return "Unauthorized", 403
+        
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        # 1. Ensure Savings Table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS savings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                date DATE NOT NULL,
+                category_id INT,
+                amount DECIMAL(10, 2) NOT NULL,
+                description VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB
+        """)
+        
+        # 2. Add missing critical categories
+        cats = [
+            ('Bank Account', 'Savings'),
+            ('Brokerage', 'Savings'),
+            ('Pension', 'Savings'),
+            ('One-Off Income', 'Income')
+        ]
+        for name, parent in cats:
+            cursor.execute("INSERT IGNORE INTO categories (name, parent_name) VALUES (%s, %s)", (name, parent))
+            
+        db.commit()
+        return "Database Setup Successful! Savings table created and categories initialized."
+    except Exception as e:
+        return f"Setup Failed: {e}"
+    finally:
+        cursor.close()
+
+@app.route('/networth-explorer')
+@login_required
+def networth_explorer():
+    return render_template('networth_explorer.html')
+
+@app.route('/api/finance/history/raw')
+@login_required
+def get_raw_history():
+    user_id = int(request.args.get('user_id', 0))
+    cursor = get_db().cursor(dictionary=True)
+    
+    if user_id == 2:
+        # Household: Combined view + Individual breakdowns
+        query = """
+            SELECT 
+                n.snapshot_date, 
+                SUM(n.total_value) as nw_total, 
+                SUM(i.total_net_income) as inc_total,
+                MAX(CASE WHEN n.user_id = 0 THEN n.total_value ELSE 0 END) as nw_gus,
+                MAX(CASE WHEN n.user_id = 1 THEN n.total_value ELSE 0 END) as nw_joules,
+                MAX(CASE WHEN i.user_id = 0 THEN i.total_net_income ELSE 0 END) as inc_gus,
+                MAX(CASE WHEN i.user_id = 1 THEN i.total_net_income ELSE 0 END) as inc_joules
+            FROM net_worth_history n
+            LEFT JOIN income_history i ON n.snapshot_date = i.snapshot_date AND n.user_id = i.user_id
+            GROUP BY n.snapshot_date
+            ORDER BY n.snapshot_date DESC
+        """
+        cursor.execute(query)
+    else:
+        # Individual view
+        query = """
+            SELECT n.id as nw_id, i.id as inc_id, n.snapshot_date, 
+                   n.total_value as nw_total, i.total_net_income as inc_total
+            FROM net_worth_history n
+            LEFT JOIN income_history i ON n.snapshot_date = i.snapshot_date AND n.user_id = i.user_id
+            WHERE n.user_id = %s
+            ORDER BY n.snapshot_date DESC
+        """
+        cursor.execute(query, (user_id,))
+        
+    rows = cursor.fetchall()
+    cursor.close()
+    
+    # Format dates for JSON
+    for r in rows:
+        if r['snapshot_date']:
+            r['snapshot_date'] = r['snapshot_date'].strftime('%Y-%m-%d')
+            
+    return jsonify(rows)
+
+@app.route('/api/finance/history/update', methods=['POST'])
+@login_required
+def update_history_entry():
+    data = request.json
+    user_id = int(data.get('user_id', 0))
+    date_str = data.get('date')
+    nw_val = float(data.get('nw_total', 0))
+    inc_val = float(data.get('inc_total', 0))
+    
+    if user_id == 2:
+        return jsonify({"error": "Cannot edit combined household data directly. Edit Gus or Joules instead."}), 400
+        
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        # Update Net Worth History for current user
+        cursor.execute("""
+            INSERT INTO net_worth_history (user_id, snapshot_date, total_value)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE total_value = VALUES(total_value)
+        """, (user_id, date_str, nw_val))
+        
+        # Update Income History for current user
+        cursor.execute("""
+            INSERT INTO income_history (user_id, snapshot_date, total_net_income)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE total_net_income = VALUES(total_net_income)
+        """, (user_id, date_str, inc_val))
+
+        # --- SMEARING LOGIC FOR HOUSEHOLD VIEW ---
+        other_user_id = 1 if user_id == 0 else 0
+        
+        # Check if other user has NW for this date
+        cursor.execute("SELECT id FROM net_worth_history WHERE user_id = %s AND snapshot_date = %s", (other_user_id, date_str))
+        if not cursor.fetchone():
+            cursor.execute("""
+                SELECT total_value FROM net_worth_history 
+                WHERE user_id = %s AND snapshot_date < %s 
+                ORDER BY snapshot_date DESC LIMIT 1
+            """, (other_user_id, date_str))
+            prev = cursor.fetchone()
+            if prev:
+                cursor.execute("INSERT INTO net_worth_history (user_id, snapshot_date, total_value) VALUES (%s, %s, %s)", 
+                               (other_user_id, date_str, float(prev[0])))
+
+        # Check if other user has Income for this date
+        cursor.execute("SELECT id FROM income_history WHERE user_id = %s AND snapshot_date = %s", (other_user_id, date_str))
+        if not cursor.fetchone():
+            cursor.execute("""
+                SELECT total_net_income FROM income_history 
+                WHERE user_id = %s AND snapshot_date < %s 
+                ORDER BY snapshot_date DESC LIMIT 1
+            """, (other_user_id, date_str))
+            prev = cursor.fetchone()
+            if prev:
+                cursor.execute("INSERT INTO income_history (user_id, snapshot_date, total_net_income) VALUES (%s, %s, %s)", 
+                               (other_user_id, date_str, float(prev[0])))
+        
+        db.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error updating history: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+
+@app.route('/api/finance/history/delete', methods=['POST'])
+@login_required
+def delete_history_entry():
+    data = request.json
+    user_id = int(data.get('user_id', 0))
+    date_str = data.get('date')
+    
+    if user_id == 2:
+        return jsonify({"error": "Cannot delete household data. Delete individual user snapshots instead."}), 400
+        
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("DELETE FROM net_worth_history WHERE user_id = %s AND snapshot_date = %s", (user_id, date_str))
+        cursor.execute("DELETE FROM income_history WHERE user_id = %s AND snapshot_date = %s", (user_id, date_str))
+        db.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error deleting history: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         cursor.close()

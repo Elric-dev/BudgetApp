@@ -1,0 +1,336 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="text-info"><i class="bi bi-database-gear me-2"></i>History Explorer</h3>
+    <div class="d-flex gap-2 align-items-center">
+        <label class="small text-light text-uppercase fw-bold mb-0">Profile:</label>
+        <select id="userSelect" class="form-select bg-dark text-white border-secondary" style="width: 160px;" onchange="loadHistoryData()">
+            <option value="0">Gus</option>
+            <option value="1">Joules</option>
+            <option value="2">🏠 Household</option>
+        </select>
+    </div>
+</div>
+
+<!-- History Trend Chart -->
+<div class="card bg-dark border-secondary p-3 mb-4 shadow-lg border-info-glow">
+    <h6 class="text-light small fw-bold text-uppercase mb-3">Historical Trend Visualization</h6>
+    <div style="height: 300px;">
+        <canvas id="historyChart"></canvas>
+    </div>
+</div>
+
+<!-- Raw Data Table -->
+<div class="card bg-dark border-secondary shadow-lg">
+    <div class="card-header border-secondary d-flex justify-content-between align-items-center bg-black">
+        <span class="text-info fw-bold text-uppercase small">Snapshot Records</span>
+        <div class="d-flex gap-2">
+            <button id="addEntryBtn" class="btn btn-sm btn-info fw-bold" onclick="showAddHistoryModal()">
+                <i class="bi bi-plus-lg me-1"></i> Manual Entry
+            </button>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0 align-middle">
+            <thead class="bg-black text-info" id="history-header">
+                <tr>
+                    <th class="ps-4">Date</th>
+                    <th>Net Worth (€)</th>
+                    <th>Net Income (€)</th>
+                    <th class="text-end pe-4">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="history-rows">
+                <!-- Rows loaded via JS -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Add History Modal -->
+<div class="modal fade" id="addHistoryModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white border-info">
+            <div class="modal-header border-info">
+                <h5 class="modal-title text-info">Add Historical Snapshot</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="small text-light">Snapshot Date</label>
+                    <input type="date" id="histDate" class="form-control bg-black text-white border-secondary">
+                </div>
+                <div class="mb-3">
+                    <label class="small text-light">Total Net Worth (€)</label>
+                    <input type="number" id="histNW" class="form-control bg-black text-white border-secondary" step="0.01">
+                </div>
+                <div class="mb-3">
+                    <label class="small text-light">Total Net Income (€)</label>
+                    <input type="number" id="histInc" class="form-control bg-black text-white border-secondary" step="0.01">
+                </div>
+                <button class="btn btn-info w-100 fw-bold" onclick="saveNewHistoryEntry()">Save Snapshot</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let historyChart;
+
+async function loadHistoryData() {
+    const userId = document.getElementById('userSelect').value;
+    const isHousehold = (userId == 2);
+    
+    // Disable add button for household view
+    document.getElementById('addEntryBtn').disabled = isHousehold;
+    
+    try {
+        const res = await fetch(`/api/finance/history/raw?user_id=${userId}`);
+        const data = await res.json();
+        
+        renderHeader(isHousehold);
+        renderTable(data, isHousehold);
+        renderChart(data);
+    } catch (err) {
+        console.error("Failed to load history:", err);
+    }
+}
+
+function renderHeader(isHousehold) {
+    const header = document.getElementById('history-header');
+    if (isHousehold) {
+        header.innerHTML = `
+            <tr>
+                <th class="ps-4">Date</th>
+                <th>Total NW (€)</th>
+                <th>Gus NW</th>
+                <th>Joules NW</th>
+                <th>Total Income (€)</th>
+                <th>Gus Inc</th>
+                <th>Joules Inc</th>
+                <th class="text-end pe-4">Actions</th>
+            </tr>
+        `;
+    } else {
+        header.innerHTML = `
+            <tr>
+                <th class="ps-4">Date</th>
+                <th>Net Worth (€)</th>
+                <th>Net Income (€)</th>
+                <th class="text-end pe-4">Actions</th>
+            </tr>
+        `;
+    }
+}
+
+function renderTable(data, isHousehold) {
+    const container = document.getElementById('history-rows');
+    const userId = document.getElementById('userSelect').value;
+
+    if (data.length === 0) {
+        container.innerHTML = `<tr><td colspan="${isHousehold ? 8 : 4}" class="text-center py-5 text-muted">No snapshot history found.</td></tr>`;
+        return;
+    }
+
+    container.innerHTML = data.map(r => `
+        <tr class="border-bottom border-secondary">
+            <td class="ps-4 text-info fw-bold">${r.snapshot_date}</td>
+            <td ${!isHousehold ? 'contenteditable="true" class="edit-cell nw-val"' : 'class="text-white fw-bold"'} 
+                data-date="${r.snapshot_date}">
+                ${Number(r.nw_total).toFixed(2)}
+            </td>
+            ${isHousehold ? `
+                <td class="text-secondary small">${Number(r.nw_gus).toFixed(2)}</td>
+                <td class="text-secondary small">${Number(r.nw_joules).toFixed(2)}</td>
+            ` : ''}
+            <td ${!isHousehold ? 'contenteditable="true" class="edit-cell inc-val"' : 'class="text-white fw-bold"'} 
+                data-date="${r.snapshot_date}">
+                ${Number(r.inc_total).toFixed(2)}
+            </td>
+            ${isHousehold ? `
+                <td class="text-secondary small">${Number(r.inc_gus).toFixed(2)}</td>
+                <td class="text-secondary small">${Number(r.inc_joules).toFixed(2)}</td>
+            ` : ''}
+            <td class="text-end pe-4">
+                ${!isHousehold ? `
+                    <button class="btn btn-sm btn-success me-1" onclick="saveRow(this, '${r.snapshot_date}')">
+                        <i class="bi bi-check-lg"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteRow('${r.snapshot_date}')">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                ` : '<small class="text-muted italic">Read Only</small>'}
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function saveRow(btn, date) {
+    const row = btn.closest('tr');
+    const nwVal = row.querySelector('.nw-val').innerText;
+    const incVal = row.querySelector('.inc-val').innerText;
+    const userId = document.getElementById('userSelect').value;
+
+    try {
+        const res = await fetch('/api/finance/history/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                user_id: userId,
+                date: date,
+                nw_total: nwVal,
+                inc_total: incVal
+            })
+        });
+
+        if (res.ok) {
+            btn.innerHTML = '<i class="bi bi-check-all"></i>';
+            setTimeout(() => { btn.innerHTML = '<i class="bi bi-check-lg"></i>'; }, 2000);
+            loadHistoryData(); // Refresh chart
+        } else {
+            alert("Update failed.");
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+async function deleteRow(date) {
+    if (!confirm(`Permanently delete the snapshots for ${date}?`)) return;
+    
+    const userId = document.getElementById('userSelect').value;
+    try {
+        const res = await fetch('/api/finance/history/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ user_id: userId, date: date })
+        });
+
+        if (res.ok) {
+            loadHistoryData();
+        } else {
+            alert("Delete failed.");
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function renderChart(data) {
+    const ctx = document.getElementById('historyChart').getContext('2d');
+    if (historyChart) historyChart.destroy();
+
+    // Reverse data for chronological chart
+    const chartData = [...data].reverse();
+
+    historyChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chartData.map(r => r.snapshot_date),
+            datasets: [
+                { 
+                    label: 'Net Worth', 
+                    data: chartData.map(r => r.nw_total), 
+                    borderColor: '#0dcaf0', 
+                    backgroundColor: 'rgba(13, 202, 240, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y'
+                },
+                { 
+                    label: 'Net Income', 
+                    data: chartData.map(r => r.inc_total), 
+                    borderColor: '#2ecc71',
+                    borderDash: [5, 5],
+                    tension: 0.3,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { 
+                    position: 'left', 
+                    ticks: { color: '#0dcaf0' },
+                    grid: { color: '#333' }
+                },
+                y1: { 
+                    position: 'right', 
+                    ticks: { color: '#2ecc71' },
+                    grid: { display: false }
+                },
+                x: {
+                    ticks: { color: '#aaa' },
+                    grid: { color: '#333' }
+                }
+            },
+            plugins: {
+                legend: { labels: { color: '#fff' } }
+            }
+        }
+    });
+}
+
+function showAddHistoryModal() {
+    // Pre-fill date with today
+    document.getElementById('histDate').value = new Date().toISOString().split('T')[0];
+    document.getElementById('histNW').value = '';
+    document.getElementById('histInc').value = '';
+    new bootstrap.Modal(document.getElementById('addHistoryModal')).show();
+}
+
+async function saveNewHistoryEntry() {
+    const userId = document.getElementById('userSelect').value;
+    const date = document.getElementById('histDate').value;
+    const nw = document.getElementById('histNW').value;
+    const inc = document.getElementById('histInc').value;
+
+    if (!date || !nw || !inc) {
+        alert("Please fill all fields");
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/finance/history/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                user_id: userId,
+                date: date,
+                nw_total: nw,
+                inc_total: inc
+            })
+        });
+
+        if (res.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('addHistoryModal')).hide();
+            loadHistoryData();
+        } else {
+            alert("Save failed.");
+        }
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadHistoryData);
+</script>
+
+<style>
+.edit-cell {
+    cursor: pointer;
+    background: rgba(255,255,255,0.02);
+    border-radius: 4px;
+    padding: 4px 8px !important;
+}
+.edit-cell:focus {
+    background: rgba(13, 202, 240, 0.1);
+    outline: 1px solid #0dcaf0;
+}
+</style>
+{% endblock %}

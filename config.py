@@ -8,7 +8,7 @@ class Config:
     DB_HOST = os.getenv('DB_HOST', 'localhost')
     DB_USER = os.getenv('DB_USER', 'root')
     DB_PASS = os.getenv('DB_PASS', '')
-    DB_NAME = os.getenv('DB_NAME', 'budget_db')
+    DB_NAME = os.getenv('DB_NAME', 'budget_tracker')
     UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', '/tmp/budget_uploads')
     DEBUG = os.getenv('DEBUG', 'False') == 'True'
     
