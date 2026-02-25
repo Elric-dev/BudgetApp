@@ -156,15 +156,15 @@ async function saveEdit(id) {
 }
 
 function renderPagination(totalEntries, page) {
-    const totalPages = Math.ceil(totalEntries / 20);
+    const totalPages = Math.max(1, Math.ceil(totalEntries / 20));
     const controls = document.getElementById('pagination-controls');
     let html = '';
     
     // First Page
-    html += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(1)"><i class="bi bi-chevron-double-left"></i> First</a></li>`;
+    html += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(1); return false;"><i class="bi bi-chevron-double-left"></i> First</a></li>`;
     
     // Previous Page
-    html += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${page - 1})">Prev</a></li>`;
+    html += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${page - 1}); return false;">Prev</a></li>`;
     
     let startPage = Math.max(1, page - 2);
     let endPage = Math.min(totalPages, page + 2);
@@ -172,16 +172,16 @@ function renderPagination(totalEntries, page) {
     if (startPage > 1) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
     
     for (let i = startPage; i <= endPage; i++) {
-        html += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" onclick="loadTable(${i})">${i}</a></li>`;
+        html += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" onclick="loadTable(${i}); return false;">${i}</a></li>`;
     }
     
     if (endPage < totalPages) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
 
     // Next Page
-    html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${page + 1})">Next</a></li>`;
+    html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${page + 1}); return false;">Next</a></li>`;
     
     // Last Page
-    html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${totalPages})">Last <i class="bi bi-chevron-double-right"></i></a></li>`;
+    html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${totalPages}); return false;">Last <i class="bi bi-chevron-double-right"></i></a></li>`;
     
     controls.innerHTML = html;
 }

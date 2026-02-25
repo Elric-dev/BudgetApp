@@ -536,6 +536,20 @@ def sync_splitwise():
         logger.error(f"Sync route failed: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/sync_splitwise_full', methods=['POST'])
+@login_required
+def sync_splitwise_full():
+    try:
+        from splitwise_sync import run_full_history_sync
+        success = run_full_history_sync()
+        if success:
+            return jsonify({"status": "Splitwise FULL history sync successful."})
+        else:
+            return jsonify({"error": "Full Sync failed. Check server logs."}), 500
+    except Exception as e:
+        logger.error(f"Full Sync route failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/expense/splitwise', methods=['POST'])
 @login_required
 def push_splitwise_expense():
@@ -554,6 +568,51 @@ def push_splitwise_expense():
     except Exception as e:
         logger.error(f"Push to Splitwise failed: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/expense/manual', methods=['POST'])
+@login_required
+def save_manual_expense():
+    data = request.json
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        # Create a unique hash for the transaction to prevent duplicates
+        mock_row = {
+            'Date': data.get('date'), 
+            'Description': data.get('description'),
+            'Cost': data.get('amount'), 
+            'Category': data.get('category_name', 'Manual')
+        }
+        t_hash = generate_transaction_hash(mock_row)
+        
+        query = """
+            INSERT INTO transactions (date, description, total_amount, user_id, category_id, payer_id, 
+            Gus_share, Joules_share, is_split, transaction_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        # For manual expenses from the input page, we usually treat them as Household (user_id=2)
+        # and use the provided splits.
+        cursor.execute(query, (
+            data['date'], 
+            data['description'], 
+            data['amount'], 
+            2, # Household
+            int(data['category_id']), 
+            0, # Default payer to Gus (0) for manual entries, or could be adjusted
+            data['split_gus'], 
+            data['split_joules'], 
+            1 if data['split_gus'] > 0 and data['split_joules'] > 0 else 0,
+            t_hash
+        ))
+        db.commit()
+        return jsonify({"status": "success"}), 201
+    except mysql.connector.errors.IntegrityError:
+        return jsonify({"error": "This transaction already exists (duplicate hash)."}), 409
+    except Exception as e:
+        logger.error(f"Error saving manual expense: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
 
 # ==========================================
 # BUDGET & INCOME PAGES
@@ -850,7 +909,7 @@ def update_asset():
     cursor = db.cursor()
     try:
         if data.get('id'):
-            cursor.execute("UPDATE assets SET current_value = %s, asset_name = %s WHERE id = %s", (data['value'], data['name'], data['id']))
+            cursor.execute("UPDATE assets SET current_value = %s WHERE id = %s", (data['value'], data['id']))
         else:
             cursor.execute("INSERT INTO assets (user_id, asset_name, asset_type, current_value) VALUES (%s, %s, %s, %s)",
                            (data['user_id'], data['name'], data['type'], data['value']))
@@ -859,6 +918,38 @@ def update_asset():
     except Exception as e:
         logger.error(f"Error updating asset: {e}")
         return jsonify({"error": "Failed to update asset"}), 500
+    finally:
+        cursor.close()
+
+@app.route('/api/networth/edit-name', methods=['POST'])
+@login_required
+def edit_asset_name():
+    data = request.json
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("UPDATE assets SET asset_name = %s WHERE id = %s", (data['name'], data['id']))
+        db.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error updating asset name: {e}")
+        return jsonify({"error": "Failed to update asset name"}), 500
+    finally:
+        cursor.close()
+
+@app.route('/api/networth/delete', methods=['POST'])
+@login_required
+def delete_asset():
+    data = request.json
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("DELETE FROM assets WHERE id = %s", (int(data['id']),))
+        db.commit()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"Error deleting asset: {e}")
+        return jsonify({"error": "Failed to delete asset"}), 500
     finally:
         cursor.close()
 
@@ -886,7 +977,7 @@ def finance_history():
     rows = cursor.fetchall()
     cursor.close()
     return jsonify({
-        "dates": [r['snapshot_date'].strftime('%%d %%b') for r in rows],
+        "dates": [r['snapshot_date'].strftime('%d %b') for r in rows],
         "nw_values": [float(r['nw_total'] or 0) for r in rows],
         "inc_values": [float(r['inc_total'] or 0) for r in rows]
     })
