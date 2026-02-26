@@ -20,22 +20,22 @@ sudo apt install git python3-pip python3-venv mariadb-server nginx -y
 Secure your MariaDB installation and create the application database:
 ```bash
 # Secure the installation (set a root password if prompted)
-sudo mysql_secure_installation
+sudo mariadb-secure-installation
 
 # Log into MariaDB
 sudo mysql -u root -p
 
 # Run these commands inside the MariaDB prompt:
-CREATE DATABASE budget_db;
-CREATE USER 'budget_user'@'localhost' IDENTIFIED BY 'your_secure_password';
-GRANT ALL PRIVILEGES ON budget_db.* TO 'budget_user'@'localhost';
+CREATE DATABASE budget_tracker;
+CREATE USER 'your_username_for_the_database'@'localhost' IDENTIFIED BY 'your_secure_password';
+GRANT ALL PRIVILEGES ON budget_db.* TO 'your_username_for_the_database'@'localhost';
 FLUSH PRIVILEGES;
 EXIT;
 ```
 
 Initialize the schema:
 ```bash
-mysql -u budget_user -p budget_db < schema.sql
+mysql -u 'your_username_for_the_database' -p budget_db < schema.sql
 ```
 
 ### 3. Application Installation
