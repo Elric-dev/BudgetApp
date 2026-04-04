@@ -3,13 +3,26 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h3 class="text-info"><i class="bi bi-speedometer2 me-2"></i>Executive Dashboard</h3>
-    <div class="d-flex align-items-center gap-2">
-        <label class="small text-white text-uppercase fw-bold mb-0" style="letter-spacing: 1px;">Profile:</label>
-        <select id="userSelect" class="form-select bg-dark text-white border-secondary shadow-sm" style="width: 160px;" onchange="updateDashboard()">
-            <option value="0">Gus</option>
-            <option value="1">Joules</option>
-            <option value="2">🏠 Household</option>
-        </select>
+    <div class="d-flex flex-column align-items-end gap-2">
+        <div class="d-flex align-items-center gap-2">
+            <label class="small text-white text-uppercase fw-bold mb-0" style="letter-spacing: 1px;">Profile:</label>
+            <select id="userSelect" class="form-select bg-dark text-white border-secondary shadow-sm" style="width: 160px;" onchange="updateDashboard()">
+                <option value="0">Gus</option>
+                <option value="1">Joules</option>
+                <option value="2">🏠 Household</option>
+            </select>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <label class="small text-white text-uppercase fw-bold mb-0" style="letter-spacing: 1px;">Period:</label>
+            <select id="periodSelect" class="form-select bg-dark text-info border-secondary shadow-sm" style="width: 160px;" onchange="updateDashboard()">
+                <option value="current">Current Month</option>
+                <option value="last_month">Last Month</option>
+                <option value="last_3">Last 3 Months</option>
+                <option value="lifetime">Lifetime</option>
+                <optgroup label="Previous Months" id="availableMonthsGroup">
+                </optgroup>
+            </select>
+        </div>
     </div>
 </div>
 
@@ -30,9 +43,9 @@
     </div>
     <div class="col">
         <div class="card border-secondary p-3 shadow-sm h-100">
-            <h6 class="text-light-gray small text-uppercase fw-bold">Current Month Spending</h6>
+            <h6 class="text-light-gray small text-uppercase fw-bold">Spending in Period</h6>
             <h2 id="dash-spending" class="text-warning fw-bold mb-0">€0.00</h2>
-            <small class="text-light-gray">This Month's Activity</small>
+            <small class="text-light-gray">Activity in Selected Period</small>
         </div>
     </div>
     <div class="col">
@@ -85,12 +98,6 @@
                 <h6 class="text-white small fw-bold text-uppercase mb-0" style="letter-spacing: 1px;">
                     <i class="bi bi-pie-chart-fill text-info me-2"></i>Allocation
                 </h6>
-                <select id="periodSelect" class="form-select form-select-sm bg-black text-info border-secondary shadow-sm" style="width: 130px;" onchange="updateSpendingWheel()">
-                    <option value="current">Current Month</option>
-                    <option value="last_month">Last Month</option>
-                    <option value="last_3">Last 3 Months</option>
-                    <option value="lifetime">Lifetime</option>
-                </select>
             </div>
             
             <div style="height: 350px; position: relative;">
@@ -132,16 +139,34 @@
 <script>
 let nwChart, spendingChart;
 
-
+async function populateAvailableMonths() {
+    try {
+        const res = await fetch('/api/finance/available-months');
+        const months = await res.json();
+        const group = document.getElementById('availableMonthsGroup');
+        const currentMonthStr = new Date().toISOString().slice(0, 7);
+        
+        months.forEach(m => {
+            if (m === currentMonthStr) return; // Skip current month as it is already an option
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.innerText = m;
+            group.appendChild(opt);
+        });
+    } catch (err) {
+        console.error("Failed to populate months:", err);
+    }
+}
 
 
 async function updateBudgetProgress(parentName = null) {
     const userId = document.getElementById('userSelect').value;
+    const period = document.getElementById('periodSelect').value;
     const container = document.getElementById('budget-progress-container');
-    const header = document.querySelector('#budget-card-header'); // Add an ID to your card title
+    const header = document.querySelector('#budget-card-header'); 
     
     try {
-        const url = `/api/budget/progress?user_id=${userId}${parentName ? `&parent_name=${parentName}` : ''}`;
+        const url = `/api/budget/progress?user_id=${userId}&period=${period}${parentName ? `&parent_name=${parentName}` : ''}`;
         const res = await fetch(url);
         const data = await res.json();
         
@@ -178,9 +203,7 @@ async function updateBudgetProgress(parentName = null) {
         console.error("Budget Refresh Failed:", err);
     }
 }
-/**
- * Main dashboard refresh. Triggered on Profile change.
- */
+
 async function updateBurnRate() {
     const userId = document.getElementById('userSelect').value;
     const container = document.getElementById('burn-rate-body');
@@ -189,7 +212,6 @@ async function updateBurnRate() {
         const res = await fetch(`/api/finance/burn-rate?user_id=${userId}`);
         const data = await res.json();
         
-        // Defined in the exact order you requested
         const order = ["3m", "1y", "lifetime"];
         const labels = { 
             "3m": "Last 3 Months", 
@@ -216,25 +238,20 @@ async function updateBurnRate() {
     }
 }
 
-// Remember to call this in your main updateDashboard() function
-
-
 
 async function updateDashboard() {
     const userId = document.getElementById('userSelect').value;
+    const period = document.getElementById('periodSelect').value;
     
-    // Trigger independent UI updates in parallel to avoid serial blocking
     updateBudgetProgress();
     
-    // Add small staggering to reduce burst congestion
     setTimeout(updateBurnRate, 100);
     setTimeout(updateSpendingWheel, 200);
 
     try {
-        // Fetch core dashboard data in parallel
         const [summaryRes, hRatioRes, historyRes] = await Promise.all([
-            fetch(`/api/dashboard/summary?user_id=${userId}&t=${Date.now()}`),
-            fetch(`/api/finance/housing-ratio?user_id=${userId}`),
+            fetch(`/api/dashboard/summary?user_id=${userId}&period=${period}&t=${Date.now()}`),
+            fetch(`/api/finance/housing-ratio?user_id=${userId}&period=${period}`),
             fetch(`/api/finance/history?user_id=${userId}`)
         ]);
 
@@ -244,7 +261,6 @@ async function updateDashboard() {
             historyRes.json()
         ]);
 
-        // 1. Update KPI Summary
         document.getElementById('dash-net-worth').innerText = `€${data.net_worth.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
         document.getElementById('dash-income').innerText = `€${data.income.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
         document.getElementById('dash-spending').innerText = `€${data.spent.toLocaleString('en-IE', {minimumFractionDigits: 2})}`;
@@ -256,11 +272,9 @@ async function updateDashboard() {
         savingsEl.className = savings >= 0 ? 'fw-bold mb-0 text-success' : 'fw-bold mb-0 text-danger';
         document.getElementById('savings-bar').style.width = `${Math.min(Math.max(savingsPct, 0), 100)}%`;
 
-        // 2. Update Housing Ratio
         document.getElementById('dash-housing-ratio').innerText = `${hRatioData.ratio}%`;
         document.getElementById('housing-bar').style.width = `${Math.min(hRatioData.ratio, 100)}%`;
 
-        // 3. Render Wealth History Chart
         renderNetWorthChart(hData);
 
     } catch (err) {
@@ -268,9 +282,6 @@ async function updateDashboard() {
     }
 }
 
-/**
- * Isolated Wheel refresh. Triggered on Period change OR Profile change.
- */
 async function updateSpendingWheel() {
     const userId = document.getElementById('userSelect').value;
     const period = document.getElementById('periodSelect').value;
@@ -278,15 +289,33 @@ async function updateSpendingWheel() {
     try {
         const sRes = await fetch(`/api/spending/parent-categories?user_id=${userId}&period=${period}&t=${Date.now()}`);
         const sData = await sRes.json();
-        renderSpendingChart(sData, false); // Always return to Global view on refresh
+        renderSpendingChart(sData, false); 
     } catch (err) {
         console.error("Wheel Refresh Failed:", err);
     }
 }
 
 function renderNetWorthChart(data) {
-    const ctx = document.getElementById('dashNetWorthChart').getContext('2d');
+    const canvas = document.getElementById('dashNetWorthChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     if (nwChart) nwChart.destroy();
+
+    if (!data.dates || data.dates.length === 0) {
+        nwChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { 
+                    title: { display: true, text: 'No historical data found', color: '#666' },
+                    legend: { display: false }
+                },
+                scales: { x: { display: false }, y: { display: false } }
+            }
+        });
+        return;
+    }
 
     nwChart = new Chart(ctx, {
         type: 'line',
@@ -311,9 +340,6 @@ function renderNetWorthChart(data) {
     });
 }
 
-/**
- * Renders the doughnut chart for Global (Parent) or Detailed (Sub) views.
- */
 function renderSpendingChart(data, isSubCategory = false, parentName = '') {
     const canvas = document.getElementById('dashSpendingChart');
     if (!canvas) return;
@@ -321,18 +347,16 @@ function renderSpendingChart(data, isSubCategory = false, parentName = '') {
     const ctx = canvas.getContext('2d');
     if (spendingChart) spendingChart.destroy();
 
-    // Update the center label content
     const totalSum = data.values.reduce((a, b) => a + b, 0);
     const labelText = isSubCategory ? parentName : 'Total Spend';
     
     const labelEl = document.getElementById('chart-center-label');
-    labelEl.style.opacity = '0'; // Hide while updating
+    labelEl.style.opacity = '0'; 
     labelEl.innerHTML = `
         <span class="text-light-gray small text-uppercase d-block" style="font-size: 0.85rem; letter-spacing: 1px;">${labelText}</span>
         <span class="text-white fw-bold h1">€${totalSum.toLocaleString('en-IE', {maximumFractionDigits: 0})}</span>
     `;
 
-    // Center Logic Plugin: Positions label in the true center of the wheel BEFORE draw
     const centerPlugin = {
         id: 'centerLabelPositioner',
         afterLayout: (chart) => {
@@ -341,7 +365,7 @@ function renderSpendingChart(data, isSubCategory = false, parentName = '') {
             labelEl.style.left = centerX + 'px';
             labelEl.style.top = centerY + 'px';
             labelEl.style.transform = 'translate(-50%, -50%)';
-            labelEl.style.opacity = '1'; // Show once positioned
+            labelEl.style.opacity = '1'; 
         }
     };
 
@@ -373,13 +397,11 @@ function renderSpendingChart(data, isSubCategory = false, parentName = '') {
                 }
             },
             onClick: (evt, item) => {
-                // Only drill down if we are currently looking at the Parent view
                 if (item.length > 0 && !isSubCategory) {
                     const index = item[0].index;
                     const selectedParent = spendingChart.data.labels[index];
                     loadSubCategoryBreakdown(selectedParent);
                 } else if (isSubCategory) {
-                    // If already in sub-view, click to go back to Global view
                     updateDashboard(); 
                 }
             },
@@ -406,26 +428,6 @@ function renderSpendingChart(data, isSubCategory = false, parentName = '') {
     });
 }
 
-/**
- * Step 2: Function to fetch and render the smaller breakdown wheel
- * for a specific parent class (e.g., Utilities breakdown into Heat, Electricity)
- */
-async function loadSubCategoryBreakdown(parentName) {
-    const userId = document.getElementById('userSelect').value;
-    try {
-        const res = await fetch(`/api/spending/sub-categories?user_id=${userId}&parent_name=${parentName}`);
-        const data = await res.json();
-        
-        // Re-render using the same chart function but with sub-category flag
-        renderSpendingChart(data, true, parentName);
-    } catch (err) {
-        console.error("Failed to load breakdown:", err);
-    }
-}
-
-/**
- * Fetches breakdown for a parent (e.g. "Utilities" -> "Electricity", "Gas")
- */
 async function loadSubCategoryBreakdown(parentName) {
     const userId = document.getElementById('userSelect').value;
     const period = document.getElementById('periodSelect').value;
@@ -438,7 +440,9 @@ async function loadSubCategoryBreakdown(parentName) {
     }
 }
 
-// Initial load
-document.addEventListener('DOMContentLoaded', updateDashboard);
+document.addEventListener('DOMContentLoaded', () => {
+    populateAvailableMonths();
+    updateDashboard();
+});
 </script>
 {% endblock %}

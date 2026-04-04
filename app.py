@@ -66,17 +66,21 @@ def teardown_db(exception):
         db.close()
 
 # --- HELPER UTILITIES ---
-def get_date_filter(period):
+def get_date_filter(period, table_alias='t'):
     """Returns SQL WHERE clause fragment and params for time frames."""
+    prefix = f"{table_alias}." if table_alias else ""
     if period == 'last_month':
-        return "AND t.date >= DATE_SUB(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 1 MONTH) AND t.date < DATE_FORMAT(NOW(), '%Y-%m-01')", []
+        return f"AND {prefix}date >= DATE_SUB(DATE_FORMAT(NOW(), '%Y-%m-01'), INTERVAL 1 MONTH) AND {prefix}date < DATE_FORMAT(NOW(), '%Y-%m-01')", []
     elif period == 'last_3':
-        return "AND t.date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)", []
+        return f"AND {prefix}date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH)", []
     elif period == 'lifetime':
         return "", []
+    elif period and len(period) == 7 and period[4] == '-': # YYYY-MM format
+        year, month = period.split('-')
+        return f"AND YEAR({prefix}date) = %s AND MONTH({prefix}date) = %s", [year, month]
     else:
         # Default: Current Month
-        return "AND MONTH(t.date) = MONTH(CURRENT_DATE()) AND YEAR(t.date) = YEAR(CURRENT_DATE())", []
+        return f"AND MONTH({prefix}date) = MONTH(CURRENT_DATE()) AND YEAR({prefix}date) = YEAR(CURRENT_DATE())", []
 
 # ==========================================
 # AUTHENTICATION ROUTES
@@ -138,79 +142,114 @@ def index():
 def dashboard_summary():
     """Top-level KPIs for Net Worth, Income, Spending, and Savings"""
     user_id = int(request.args.get('user_id', 0))
+    period = request.args.get('period', 'current')
     cursor = get_db().cursor(dictionary=True)
     
+    date_clause, date_params = get_date_filter(period, table_alias='transactions')
+    
+    # Helper to check if period is a specific month (YYYY-MM)
+    is_specific_month = period and len(period) == 7 and period[4] == '-'
+
     try:
-        # Get One-Off Income Category ID
+        # 1. GET NET WORTH (Live or Historical)
+        if period == 'current' or period == 'last_3' or period == 'lifetime':
+            # Use current live values for "Live" views
+            if user_id == 2: # Household
+                cursor.execute("SELECT SUM(current_value) as nw FROM assets")
+            else:
+                cursor.execute("SELECT SUM(current_value) as nw FROM assets WHERE user_id = %s", (user_id,))
+            res = cursor.fetchone()
+            nw = float(res['nw'] or 0)
+        else:
+            # Historical lookup from snapshots
+            if is_specific_month:
+                cursor.execute("SELECT LAST_DAY(STR_TO_DATE(CONCAT(%s, '-01'), '%Y-%m-%d')) as ld", (period,))
+                target_date = cursor.fetchone()['ld']
+            elif period == 'last_month':
+                cursor.execute("SELECT LAST_DAY(DATE_SUB(NOW(), INTERVAL 1 MONTH)) as ld")
+                target_date = cursor.fetchone()['ld']
+            else:
+                target_date = datetime.now().strftime('%Y-%m-%d')
+
+            if user_id == 2:
+                cursor.execute("""
+                    SELECT SUM(total_value) as nw FROM net_worth_history 
+                    WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM net_worth_history WHERE snapshot_date <= %s)
+                """, (target_date,))
+            else:
+                cursor.execute("""
+                    SELECT total_value as nw FROM net_worth_history 
+                    WHERE user_id = %s AND snapshot_date <= %s 
+                    ORDER BY snapshot_date DESC LIMIT 1
+                """, (user_id, target_date))
+            res = cursor.fetchone()
+            nw = float(res['nw'] or 0)
+
+        # 2. GET INCOME (Aggregated for period)
         cursor.execute("SELECT id FROM categories WHERE name = 'One-Off Income'")
         one_off_cat = cursor.fetchone()
         one_off_cat_id = one_off_cat['id'] if one_off_cat else -1
 
-        if user_id == 2: # Household
-            cursor.execute("SELECT SUM(current_value) as nw FROM assets")
-            res = cursor.fetchone()
-            nw = res['nw'] if res and res['nw'] else 0
-            
-            # Recurring Income
+        # Calculate monthly recurring net based on current streams
+        if user_id == 2:
             cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams")
-            res = cursor.fetchone()
-            recurring_inc = res['inc'] if res and res['inc'] else 0
-            
-            # One-off Income (recorded as negative total_amount in transactions)
-            cursor.execute("""
-                SELECT SUM(ABS(total_amount)) as one_off 
-                FROM transactions 
-                WHERE category_id = %s AND MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
-            """, (one_off_cat_id,))
-            res = cursor.fetchone()
-            one_off_inc = res['one_off'] if res and res['one_off'] else 0
-            
-            inc = recurring_inc + one_off_inc
-
-            cursor.execute("""
-                SELECT SUM(Gus_share + Joules_share) as spent 
-                FROM transactions 
-                WHERE category_id != %s AND MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
-            """, (one_off_cat_id,))
-            res = cursor.fetchone()
-            spent = res['spent'] if res and res['spent'] else 0
-            
-            cursor.execute("SELECT * FROM user_settings WHERE user_id = 0")
-            settings = cursor.fetchone()
-        else: # Gus (0) or Joules (1)
-            cursor.execute("SELECT SUM(current_value) as nw FROM assets WHERE user_id = %s", (user_id,))
-            res = cursor.fetchone()
-            nw = res['nw'] if res and res['nw'] else 0
-            
-            # Recurring Income
+        else:
             cursor.execute("SELECT SUM(monthly_gross * (1 - tax_rate/100)) as inc FROM income_streams WHERE user_id = %s", (user_id,))
-            res = cursor.fetchone()
-            recurring_inc = res['inc'] if res and res['inc'] else 0
-            
-            # One-off Income
-            share_col = "Gus_share" if user_id == 0 else "Joules_share"
-            cursor.execute(f"""
-                SELECT SUM(ABS({share_col})) as one_off 
-                FROM transactions 
-                WHERE user_id = %s AND category_id = %s AND MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
-            """, (user_id, one_off_cat_id))
-            res = cursor.fetchone()
-            one_off_inc = res['one_off'] if res and res['one_off'] else 0
-            
-            inc = recurring_inc + one_off_inc
-            
-            cursor.execute(f"""
-                SELECT SUM({share_col}) as spent 
-                FROM transactions 
-                WHERE category_id != %s AND (user_id = %s OR ({share_col} > 0 AND user_id != %s))
-                AND MONTH(date) = MONTH(CURDATE()) AND YEAR(date) = YEAR(CURDATE())
-            """, (one_off_cat_id, user_id, user_id))
-            res = cursor.fetchone()
-            spent = res['spent'] if res and res['spent'] else 0
-            
-            cursor.execute("SELECT * FROM user_settings WHERE user_id = %s", (user_id,))
-            settings = cursor.fetchone()
+        res = cursor.fetchone()
+        monthly_recurring_net = float(res['inc'] or 0)
 
+        if is_specific_month or period == 'last_month':
+            # For specific months, use the snapshot
+            if is_specific_month:
+                cursor.execute("SELECT LAST_DAY(STR_TO_DATE(CONCAT(%s, '-01'), '%Y-%m-%d')) as ld", (period,))
+                target_date = cursor.fetchone()['ld']
+            else:
+                cursor.execute("SELECT LAST_DAY(DATE_SUB(NOW(), INTERVAL 1 MONTH)) as ld")
+                target_date = cursor.fetchone()['ld']
+
+            if user_id == 2:
+                cursor.execute("""
+                    SELECT SUM(total_net_income) as inc FROM income_history 
+                    WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM income_history WHERE snapshot_date <= %s)
+                """, (target_date,))
+            else:
+                cursor.execute("""
+                    SELECT total_net_income as inc FROM income_history 
+                    WHERE user_id = %s AND snapshot_date <= %s 
+                    ORDER BY snapshot_date DESC LIMIT 1
+                """, (user_id, target_date))
+            res = cursor.fetchone()
+            inc = float(res['inc'] or 0)
+        else:
+            # Aggregated income for current, last_3, or lifetime
+            if period == 'last_3':
+                num_months = 3
+            elif period == 'lifetime':
+                cursor.execute("SELECT TIMESTAMPDIFF(MONTH, MIN(date), NOW()) + 1 as mos FROM transactions")
+                res = cursor.fetchone()
+                num_months = float(res['mos'] or 1)
+            else:
+                num_months = 1
+
+            # Sum One-off Income in the period
+            cursor.execute(f"SELECT SUM(ABS(total_amount)) as one_off FROM transactions WHERE category_id = %s {date_clause}", [one_off_cat_id] + date_params)
+            res = cursor.fetchone()
+            one_off_inc_total = float(res['one_off'] or 0)
+            
+            inc = (monthly_recurring_net * num_months) + one_off_inc_total
+
+        # 3. GET SPENDING (Always aggregated for period)
+        if user_id == 2:
+            cursor.execute(f"SELECT SUM(Gus_share + Joules_share) as spent FROM transactions WHERE category_id != %s {date_clause}", [one_off_cat_id] + date_params)
+        else:
+            share_col = "Gus_share" if user_id == 0 else "Joules_share"
+            cursor.execute(f"SELECT SUM({share_col}) as spent FROM transactions WHERE category_id != %s AND (user_id = %s OR ({share_col} > 0 AND user_id != %s)) {date_clause}", [one_off_cat_id, user_id, user_id] + date_params)
+        res = cursor.fetchone()
+        spent = float(res['spent'] or 0)
+        
+        # 4. GET GOALS
+        cursor.execute("SELECT * FROM user_settings WHERE user_id = %s", (0 if user_id == 2 else user_id,))
+        settings = cursor.fetchone()
         if not settings:
             settings = {"savings_goal_pct": 20.0, "expenses_goal_pct": 50.0}
 
@@ -223,6 +262,7 @@ def dashboard_summary():
     finally:
         cursor.close()
 
+
 @app.route('/api/spending/parent-categories', methods=['GET'])
 @login_required
 def get_parent_spending():
@@ -230,7 +270,7 @@ def get_parent_spending():
     period = request.args.get('period', 'current')
     cursor = get_db().cursor(dictionary=True)
     
-    date_clause, _ = get_date_filter(period)
+    date_clause, date_params = get_date_filter(period)
     
     # Get One-Off Income Category ID to exclude
     cursor.execute("SELECT id FROM categories WHERE name = 'One-Off Income'")
@@ -256,7 +296,7 @@ def get_parent_spending():
             WHERE {user_filter} AND t.category_id != %s {date_clause}
             GROUP BY parent_class ORDER BY total DESC
         """
-        cursor.execute(query, (one_off_cat_id,))
+        cursor.execute(query, [one_off_cat_id] + date_params)
         rows = cursor.fetchall()
         return jsonify({"labels": [r['parent_class'] for r in rows], "values": [float(r['total']) for r in rows]})
     finally:
@@ -270,7 +310,7 @@ def get_sub_spending():
     period = request.args.get('period', 'current')
     cursor = get_db().cursor(dictionary=True)
     
-    date_clause, _ = get_date_filter(period)
+    date_clause, date_params = get_date_filter(period)
     
     if user_id == 2:
         share_calc = "SUM(t.Gus_share + t.Joules_share)"
@@ -290,7 +330,7 @@ def get_sub_spending():
             WHERE {user_filter} AND c.parent_name = %s {date_clause}
             GROUP BY c.name ORDER BY total DESC
         """
-        cursor.execute(query, (parent_name,))
+        cursor.execute(query, [parent_name] + date_params)
         rows = cursor.fetchall()
         return jsonify({"labels": [r['sub_category'] for r in rows], "values": [float(r['total']) for r in rows]})
     finally:
@@ -421,7 +461,7 @@ def input_page():
 
     # Fetch Income Categories (with fallback)
     inc_cursor = db.cursor(dictionary=True)
-    inc_cursor.execute("SELECT id, name FROM categories WHERE parent_name = 'Income' OR name LIKE '%%Income%%' ORDER BY name ASC")
+    inc_cursor.execute("SELECT id, name FROM categories WHERE parent_name = 'Income' OR name LIKE '%Income%' ORDER BY name ASC")
     income_cats = inc_cursor.fetchall()
     if not income_cats:
         inc_cursor.execute("SELECT id, name FROM categories WHERE parent_name = 'Uncategorized' ORDER BY name ASC")
@@ -790,7 +830,10 @@ def delete_income():
 def budget_progress():
     user_id = int(request.args.get('user_id', 0))
     parent_name = request.args.get('parent_name')
+    period = request.args.get('period', 'current')
     cursor = get_db().cursor(dictionary=True)
+    
+    date_clause, date_params = get_date_filter(period, table_alias='t')
     
     if user_id == 2:
         share_calc = "t.Gus_share + t.Joules_share"
@@ -808,13 +851,11 @@ def budget_progress():
                     COALESCE(SUM({share_calc}), 0) as actual
                 FROM categories c
                 LEFT JOIN budgets b ON c.name = b.category_name AND b.user_id = %s
-                LEFT JOIN transactions t ON c.id = t.category_id 
-                    AND MONTH(t.date) = MONTH(CURRENT_DATE())
-                    AND YEAR(t.date) = YEAR(CURRENT_DATE())
+                LEFT JOIN transactions t ON c.id = t.category_id {date_clause}
                 WHERE c.parent_name = %s
                 GROUP BY c.name, b.target_amount
             """
-            cursor.execute(query, (user_id, parent_name))
+            cursor.execute(query, [user_id] + date_params + [parent_name])
         else:
             query = f"""
                 SELECT 
@@ -826,18 +867,29 @@ def budget_progress():
                     SELECT category_name, SUM(target_amount) as target_amount 
                     FROM budgets WHERE user_id = %s GROUP BY category_name
                 ) b ON c.name = b.category_name
-                LEFT JOIN transactions t ON c.id = t.category_id 
-                    AND MONTH(t.date) = MONTH(CURRENT_DATE())
-                    AND YEAR(t.date) = YEAR(CURRENT_DATE())
+                LEFT JOIN transactions t ON c.id = t.category_id {date_clause}
                 WHERE {user_filter}
                 GROUP BY c.parent_name
             """
-            cursor.execute(query, (user_id,))
+            cursor.execute(query, [user_id] + date_params)
             
         rows = cursor.fetchall()
         return jsonify(rows)
     finally:
         cursor.close()
+
+@app.route('/api/finance/available-months')
+@login_required
+def get_available_months():
+    cursor = get_db().cursor(dictionary=True)
+    cursor.execute("""
+        SELECT DISTINCT DATE_FORMAT(date, '%Y-%m') as month
+        FROM transactions
+        ORDER BY month DESC
+    """)
+    rows = cursor.fetchall()
+    cursor.close()
+    return jsonify([r['month'] for r in rows])
 
 @app.route('/api/finance/burn-rate')
 @login_required
@@ -999,7 +1051,10 @@ def get_categories():
 @login_required
 def get_housing_ratio():
     user_id = int(request.args.get('user_id', 0))
+    period = request.args.get('period', 'current')
     cursor = get_db().cursor(dictionary=True)
+    
+    date_clause, date_params = get_date_filter(period, table_alias='t')
     
     try:
         # 1. Get Monthly Net Income
@@ -1022,9 +1077,9 @@ def get_housing_ratio():
             FROM transactions t
             JOIN categories c ON t.category_id = c.id
             WHERE (c.parent_name IN ('Home', 'Utilities'))
-            AND MONTH(t.date) = MONTH(CURDATE()) AND YEAR(t.date) = YEAR(CURDATE())
+            {date_clause}
         """
-        cursor.execute(query)
+        cursor.execute(query, date_params)
         cost_res = cursor.fetchone()
         housing_cost = float(cost_res['total'] or 0)
 

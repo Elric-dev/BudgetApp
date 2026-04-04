@@ -69,7 +69,12 @@
 <div class="card bg-dark border-secondary shadow-lg mb-4 border-info-glow">
     <div class="card-header border-secondary d-flex justify-content-between align-items-center">
         <span class="text-info fw-bold text-uppercase small">Asset Breakdown</span>
-        <button class="btn btn-sm btn-info fw-bold" onclick="showAddAssetModal()">+ Add Asset</button>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-success fw-bold" onclick="saveAllAssets()">
+                <i class="bi bi-cloud-check-fill me-1"></i> Save Changes
+            </button>
+            <button class="btn btn-sm btn-info fw-bold" onclick="showAddAssetModal()">+ Add Asset</button>
+        </div>
     </div>
     <div class="card-body p-4" id="asset-rows" style="max-height: 500px; overflow-y: auto;">
         <!-- Asset rows will be loaded here -->
@@ -79,7 +84,12 @@
 <div class="card bg-dark border-success shadow-lg mb-5">
     <div class="card-header border-success d-flex justify-content-between align-items-center">
         <span class="text-success fw-bold text-uppercase small">Income Streams</span>
-        <button class="btn btn-sm btn-success fw-bold" onclick="showAddIncomeModal()">+ Add Income</button>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-success fw-bold" onclick="saveAllIncome()">
+                <i class="bi bi-cloud-check-fill me-1"></i> Save Changes
+            </button>
+            <button class="btn btn-sm btn-success fw-bold" onclick="showAddIncomeModal()">+ Add Income</button>
+        </div>
     </div>
     <div class="table-responsive">
         <table class="table table-dark table-hover mb-0 align-middle">
@@ -116,7 +126,7 @@
                     <label class="small text-light">Tax Rate (%)</label>
                     <input type="number" id="incomeTax" class="form-control bg-black text-white border-secondary" value="0">
                 </div>
-                <button class="btn btn-success w-100 fw-bold" onclick="saveIncome()">Save Income Stream</button>
+                <button class="btn btn-success w-100 fw-bold" onclick="saveNewIncome()">Save Income Stream</button>
             </div>
         </div>
     </div>
@@ -194,21 +204,21 @@ async function loadNetWorth() {
         if(liqTypes.includes(a.asset_type)) liq += val; else fix += val;
         
         return `
-            <div class="row g-2 align-items-center mb-3 pb-3 border-bottom-custom">
+            <div class="row g-2 align-items-center mb-3 pb-3 border-bottom-custom asset-row" data-id="${a.id}">
                 <div class="col-7">
                     <div class="d-flex align-items-center gap-2">
-                        <input type="text" class="form-control form-control-sm bg-transparent text-white border-0 fw-bold p-0 mb-0" 
+                        <input type="text" class="form-control form-control-sm bg-transparent text-white border-0 fw-bold p-0 mb-0 asset-name-input" 
                                style="font-size: 1.1rem; width: auto; min-width: 120px;"
-                               value="${a.asset_name}" onchange="updateName(${a.id}, this.value)">
+                               value="${a.asset_name}">
                         <span class="badge bg-dark border border-secondary text-light-gray text-uppercase" style="font-size: 0.65rem; letter-spacing: 1px;">${a.asset_type}</span>
                     </div>
                 </div>
                 <div class="col-4">
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-black border-secondary text-success">€</span>
-                        <input type="number" class="form-control bg-black text-info border-secondary fw-bold text-end" 
+                        <input type="number" class="form-control bg-black text-info border-secondary fw-bold text-end asset-value-input" 
                                style="font-family: 'Courier New', monospace; font-size: 1rem;"
-                               value="${val}" onchange="updateValue(${a.id}, this.value)">
+                               value="${val}">
                     </div>
                 </div>
                 <div class="col-1 text-end">
@@ -238,22 +248,22 @@ async function loadIncome() {
     
     document.getElementById('income-rows').innerHTML = streams.map(s => {
         return `
-            <tr class="border-bottom border-secondary">
+            <tr class="border-bottom border-secondary income-row" data-id="${s.id}">
                 <td class="ps-4">
-                    <input type="text" class="form-control form-control-sm bg-transparent text-white border-0 fw-bold p-0" 
-                           value="${s.source_name}" onchange="updateIncome(${s.id}, 'source', this.value)">
+                    <input type="text" class="form-control form-control-sm bg-transparent text-white border-0 fw-bold p-0 income-source-input" 
+                           value="${s.source_name}">
                 </td>
                 <td>
                     <div class="input-group input-group-sm" style="width: 150px;">
                         <span class="input-group-text bg-black border-secondary text-success">€</span>
-                        <input type="number" class="form-control bg-black text-info border-secondary" 
-                               value="${s.monthly_gross}" onchange="updateIncome(${s.id}, 'gross', this.value)">
+                        <input type="number" class="form-control bg-black text-info border-secondary income-gross-input" 
+                               value="${s.monthly_gross}">
                     </div>
                 </td>
                 <td>
                     <div class="input-group input-group-sm" style="width: 100px;">
-                        <input type="number" class="form-control bg-black text-info border-secondary text-center" 
-                               value="${s.tax_rate}" onchange="updateIncome(${s.id}, 'tax', this.value)">
+                        <input type="number" class="form-control bg-black text-info border-secondary text-center income-tax-input" 
+                               value="${s.tax_rate}">
                         <span class="input-group-text bg-black border-secondary text-muted">%</span>
                     </div>
                 </td>
@@ -267,25 +277,53 @@ async function loadIncome() {
     }).join('');
 }
 
-async function updateIncome(id, field, value) {
-    const userId = document.getElementById('userSelect').value;
-    const res = await fetch(`/api/income?user_id=${userId}`);
-    const streams = await res.json();
-    const s = streams.find(item => item.id === id);
+async function saveAllAssets() {
+    const rows = document.querySelectorAll('.asset-row');
+    const promises = [];
     
-    const payload = {
-        id: id,
-        source: field === 'source' ? value : s.source_name,
-        gross: field === 'gross' ? value : s.monthly_gross,
-        tax: field === 'tax' ? value : s.tax_rate
-    };
-
-    await fetch('/api/income/update', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
+    rows.forEach(row => {
+        const id = row.dataset.id;
+        const name = row.querySelector('.asset-name-input').value;
+        const value = row.querySelector('.asset-value-input').value;
+        
+        promises.push(fetch('/api/networth/edit-name', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id: id, name: name})
+        }));
+        
+        promises.push(fetch('/api/networth/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id: id, value: value})
+        }));
     });
-    loadIncome();
+    
+    await Promise.all(promises);
+    alert("All assets saved successfully!");
+    loadNetWorth();
+}
+
+async function saveAllIncome() {
+    const rows = document.querySelectorAll('.income-row');
+    const promises = [];
+    
+    rows.forEach(row => {
+        const id = row.dataset.id;
+        const source = row.querySelector('.income-source-input').value;
+        const gross = row.querySelector('.income-gross-input').value;
+        const tax = row.querySelector('.income-tax-input').value;
+        
+        promises.push(fetch('/api/income/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id: id, source: source, gross: gross, tax: tax})
+        }));
+    });
+    
+    await Promise.all(promises);
+    alert("All income streams saved successfully!");
+    loadNetWorth();
 }
 
 async function deleteIncome(id) {
@@ -302,7 +340,7 @@ function showAddIncomeModal() {
     new bootstrap.Modal(document.getElementById('incomeModal')).show();
 }
 
-async function saveIncome() {
+async function saveNewIncome() {
     const payload = {
         user_id: document.getElementById('userSelect').value,
         source: document.getElementById('incomeSource').value,
@@ -372,11 +410,7 @@ async function saveNewAsset() {
         value: document.getElementById('assetValue').value
     };
     await fetch('/api/networth/update', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-    location.reload();
-}
-
-async function updateValue(id, val) {
-    await fetch('/api/networth/update', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id, value: val}) });
+    bootstrap.Modal.getInstance(document.getElementById('assetModal')).hide();
     loadNetWorth();
 }
 
@@ -388,7 +422,6 @@ async function takeSnapshot() {
     console.log("Triggering Snapshot for User:", userId);
 
     try {
-        // 1. Show loading state on button
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
 
@@ -403,27 +436,16 @@ async function takeSnapshot() {
         const result = await res.json();
         console.log("Snapshot result:", result);
 
-        // 2. Alert the user and refresh the UI
         alert("Success! Financial snapshot recorded for today.");
-        loadNetWorth(); // This will refresh the chart and data
+        loadNetWorth(); 
 
     } catch (err) {
         console.error("Snapshot Failed:", err);
         alert("Failed to save snapshot. Check the terminal console.");
     } finally {
-        // 3. Reset button state
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
-}
-
-async function updateName(id, newName) {
-    await fetch('/api/networth/edit-name', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({id: id, name: newName})
-    });
-    // No reload needed for name change
 }
 
 async function deleteAsset(id) {
@@ -434,11 +456,8 @@ async function deleteAsset(id) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({id: id})
     });
-    loadNetWorth(); // Refresh the table and cards
+    loadNetWorth(); 
 }
-
-
-
 
 document.addEventListener('DOMContentLoaded', loadNetWorth);
 </script>
