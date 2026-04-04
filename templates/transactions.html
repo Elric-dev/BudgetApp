@@ -3,7 +3,25 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h3 class="text-info"><i class="bi bi-list-check me-2"></i>Expense Explorer</h3>
-    <span class="badge bg-dark border border-info text-info p-2" id="total-count-badge" style="font-size: 0.9rem;">Total Entries: 0</span>
+    <div class="d-flex gap-3">
+        <div class="d-flex align-items-center gap-2">
+            <label class="small text-white text-uppercase fw-bold mb-0">Period:</label>
+            <select id="periodSelect" class="form-select bg-dark text-info border-secondary shadow-sm" style="width: 160px;" onchange="loadTable(1)">
+                <option value="lifetime">Lifetime</option>
+                <option value="current">Current Month</option>
+                <option value="last_month">Last Month</option>
+                <option value="last_3">Last 3 Months</option>
+                <optgroup label="Previous Months" id="availableMonthsGroup"></optgroup>
+            </select>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <label class="small text-white text-uppercase fw-bold mb-0">Category:</label>
+            <select id="categoryFilter" class="form-select bg-dark text-white border-secondary shadow-sm" style="width: 200px;" onchange="loadTable(1)">
+                <option value="all">All Categories</option>
+            </select>
+        </div>
+        <span class="badge bg-dark border border-info text-info p-2 d-flex align-items-center" id="total-count-badge" style="font-size: 0.9rem;">Total: 0</span>
+    </div>
 </div>
 
 <div class="card bg-dark border-secondary shadow-lg">
@@ -32,68 +50,85 @@
 
 <script>
 let currentPage = 1;
-let categoriesList = []; // Global store for category dropdown
+let categoriesList = []; 
 
-// Fetch categories once to use in the table rows
-async function fetchCategories() {
+async function populateFilterOptions() {
     try {
-        const res = await fetch('/api/categories'); // Adjust endpoint as needed
-        categoriesList = await res.json();
-    } catch (e) { console.error("Could not load categories", e); }
+        // Populate Categories Filter
+        const catRes = await fetch('/api/categories');
+        categoriesList = await catRes.json();
+        const catFilter = document.getElementById('categoryFilter');
+        categoriesList.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.innerText = c.parent_name ? `${c.name} (${c.parent_name})` : c.name;
+            catFilter.appendChild(opt);
+        });
+
+        // Populate Months Filter
+        const monthRes = await fetch('/api/finance/available-months');
+        const months = await monthRes.json();
+        const group = document.getElementById('availableMonthsGroup');
+        months.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.innerText = m;
+            group.appendChild(opt);
+        });
+    } catch (e) { console.error("Could not load filters", e); }
 }
 
 async function loadTable(page = 1) {
-    if (categoriesList.length === 0) await fetchCategories();
+    if (categoriesList.length === 0) await populateFilterOptions();
     
     currentPage = page;
+    const period = document.getElementById('periodSelect').value;
+    const categoryId = document.getElementById('categoryFilter').value;
+    
     try {
-        const res = await fetch(`/api/transactions?page=${page}`);
+        const res = await fetch(`/api/transactions?page=${page}&period=${period}&category_id=${categoryId}`);
         const data = await res.json();
         
         const container = document.getElementById('transaction-rows');
-        document.getElementById('total-count-badge').innerText = `Total Entries: ${data.total}`;
+        document.getElementById('total-count-badge').innerText = `Total: ${data.total}`;
 
         if (data.transactions.length === 0) {
-            container.innerHTML = '<tr><td colspan="7" class="text-center py-5">No transactions found.</td></tr>';
+            container.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted">No transactions found for the selected filters.</td></tr>';
+            renderPagination(0, 1);
             return;
         }
 
        container.innerHTML = data.transactions.map(t => {
-    // Generate options and explicitly check for a match with t.category_id
-    const catOptions = categoriesList.map(c => {
-        // Compare the category ID from the list to the transaction's category_id
-        const isSelected = (c.id === t.category_id) ? 'selected' : '';
-        
-        // Show parent name if it exists for better context (e.g., "Heat (Utilities)")
-        const displayLabel = c.parent_name ? `${c.name} (${c.parent_name})` : c.name;
-        
-        return `<option value="${c.id}" ${isSelected}>${displayLabel}</option>`;
-    }).join('');
+            const catOptions = categoriesList.map(c => {
+                const isSelected = (c.id === t.category_id) ? 'selected' : '';
+                const displayLabel = c.parent_name ? `${c.name} (${c.parent_name})` : c.name;
+                return `<option value="${c.id}" ${isSelected}>${displayLabel}</option>`;
+            }).join('');
 
-    return `
-    <tr id="row-${t.id}">
-        <td class="text-info fw-bold">${t.clean_date}</td>
-        <td>
-            <select class="form-select form-select-sm cat-select" id="cat-${t.id}">
-                ${catOptions}
-            </select>
-        </td>
-        <td contenteditable="true" id="desc-${t.id}">${t.description}</td>
-        <td contenteditable="true" id="amt-${t.id}" class="fw-bold text-white">${t.total_amount}</td>
-        <td contenteditable="true" id="gus-${t.id}" class="text-success">${t.Gus_share}</td>
-        <td contenteditable="true" id="joules-${t.id}" class="text-warning">${t.Joules_share}</td>
-        <td class="text-center">
-            <div class="d-flex gap-2 justify-content-center">
-                <button onclick="saveEdit(${t.id})" class="btn btn-sm btn-success">
-                    <i class="bi bi-check-lg"></i> Save
-                </button>
-                <button onclick="deleteTransaction(${t.id})" class="btn btn-sm btn-outline-danger">
-                    <i class="bi bi-trash"></i>
-                </button>
-            </div>
-        </td>
-    </tr>`;
-}).join('');
+            return `
+            <tr id="row-${t.id}">
+                <td class="text-info fw-bold">${t.clean_date}</td>
+                <td>
+                    <select class="form-select form-select-sm cat-select bg-black text-white border-secondary" id="cat-${t.id}">
+                        ${catOptions}
+                    </select>
+                </td>
+                <td contenteditable="true" id="desc-${t.id}">${t.description}</td>
+                <td contenteditable="true" id="amt-${t.id}" class="fw-bold text-white">${t.total_amount.toFixed(2)}</td>
+                <td contenteditable="true" id="gus-${t.id}" class="text-success">${t.Gus_share.toFixed(2)}</td>
+                <td contenteditable="true" id="joules-${t.id}" class="text-warning">${t.Joules_share.toFixed(2)}</td>
+                <td class="text-center">
+                    <div class="d-flex gap-2 justify-content-center">
+                        <button onclick="saveEdit(${t.id})" class="btn btn-sm btn-success">
+                            <i class="bi bi-check-lg"></i> Save
+                        </button>
+                        <button onclick="deleteTransaction(${t.id})" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
         
         renderPagination(data.total, page);
     } catch (error) {
@@ -112,7 +147,6 @@ async function deleteTransaction(id) {
         });
         
         if (res.ok) {
-            // Re-load the current page to refresh data and total count
             loadTable(currentPage);
         } else {
             alert("Error deleting record.");
@@ -160,27 +194,19 @@ function renderPagination(totalEntries, page) {
     const controls = document.getElementById('pagination-controls');
     let html = '';
     
-    // First Page
     html += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(1); return false;"><i class="bi bi-chevron-double-left"></i> First</a></li>`;
-    
-    // Previous Page
     html += `<li class="page-item ${page === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${page - 1}); return false;">Prev</a></li>`;
     
     let startPage = Math.max(1, page - 2);
     let endPage = Math.min(totalPages, page + 2);
     
     if (startPage > 1) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-    
     for (let i = startPage; i <= endPage; i++) {
         html += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" onclick="loadTable(${i}); return false;">${i}</a></li>`;
     }
-    
     if (endPage < totalPages) html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
 
-    // Next Page
     html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${page + 1}); return false;">Next</a></li>`;
-    
-    // Last Page
     html += `<li class="page-item ${page === totalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadTable(${totalPages}); return false;">Last <i class="bi bi-chevron-double-right"></i></a></li>`;
     
     controls.innerHTML = html;

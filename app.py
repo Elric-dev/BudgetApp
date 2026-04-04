@@ -349,20 +349,53 @@ def transactions_page():
 @login_required
 def get_transactions_paginated():
     page = int(request.args.get('page', 1))
+    period = request.args.get('period', 'lifetime') # Default to lifetime for explorer
+    category_id = request.args.get('category_id')
     offset = (page - 1) * 20
+    
     cursor = get_db().cursor(dictionary=True)
-    cursor.execute("SELECT COUNT(*) as count FROM transactions")
+    
+    # Base filters
+    where_clauses = []
+    params = []
+    
+    if period != 'lifetime':
+        date_clause, date_params = get_date_filter(period, table_alias='t')
+        if date_clause:
+            # get_date_filter returns "AND ...", so we strip leading AND if it's the first clause
+            where_clauses.append(date_clause.lstrip('AND '))
+            params.extend(date_params)
+            
+    if category_id and category_id != 'all':
+        where_clauses.append("t.category_id = %s")
+        params.append(int(category_id))
+        
+    where_stmt = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+    
+    # Count total with filters
+    count_query = f"SELECT COUNT(*) as count FROM transactions t {where_stmt}"
+    cursor.execute(count_query, params)
     total_count = cursor.fetchone()['count']
-    query = """
+    
+    # Fetch rows with filters
+    query = f"""
         SELECT t.id, DATE_FORMAT(t.date, '%Y-%m-%d') as clean_date, t.description, 
                t.total_amount, t.Gus_share, t.Joules_share, t.category_id, c.name as category_name
         FROM transactions t
         LEFT JOIN categories c ON t.category_id = c.id
+        {where_stmt}
         ORDER BY t.date DESC LIMIT 20 OFFSET %s
     """
-    cursor.execute(query, (offset,))
+    cursor.execute(query, params + [offset])
     rows = cursor.fetchall()
     cursor.close()
+    
+    # Ensure all numbers are float for JSON
+    for r in rows:
+        r['total_amount'] = float(r['total_amount'])
+        r['Gus_share'] = float(r['Gus_share'])
+        r['Joules_share'] = float(r['Joules_share'])
+        
     return jsonify({"transactions": rows, "total": total_count, "page": page})
 
 @app.route('/api/transactions/update', methods=['POST'])
